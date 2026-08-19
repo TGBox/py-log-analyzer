@@ -1,4 +1,30 @@
+import re
 import json
+
+def format_german_date(val):
+    """Converts YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS to German DD.MM.YYYY format."""
+    if not isinstance(val, str) or not val:
+        return val
+
+    # ISO datetime: 2026-08-18T09:15:00+02:00 or 2026-08-18 09:15:00
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}:\d{2})(?::\d{2})?.*$", val)
+    if m:
+        year, month, day, time = m.groups()
+        return f"{day}.{month}.{year} um {time} Uhr"
+
+    # Date only: 2026-08-18
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", val)
+    if m:
+        year, month, day = m.groups()
+        return f"{day}.{month}.{year}"
+
+    # Replace any embedded YYYY-MM-DD dates in text
+    def replace_date(match):
+        y, m, d = match.groups()
+        return f"{d}.{m}.{y}"
+    
+    return re.sub(r"\b(\d{4})-(\d{2})-(\d{2})\b", replace_date, val)
+
 
 def extract_patient_name(data):
     if not isinstance(data, dict):
@@ -37,13 +63,7 @@ def get_business_description(entry):
     if table == "events":
         title = payload.get("title", "Termin")
         start = payload.get("start", "")
-        # Format time if ISO format
-        if "T" in start:
-            time_part = start.split("T")[1][:5]
-            date_part = start.split("T")[0]
-            start_fmt = f"{date_part} um {time_part} Uhr"
-        else:
-            start_fmt = start
+        start_fmt = format_german_date(start)
 
         if action == "insert":
             if patient_name:
@@ -89,7 +109,7 @@ def get_business_description(entry):
         name = extract_patient_name(payload) or payload.get("id", "")[:8]
         if action == "update":
             if "p_zuzahlungsbefreit_bis" in payload:
-                bis = payload.get("p_zuzahlungsbefreit_bis")
+                bis = format_german_date(payload.get("p_zuzahlungsbefreit_bis"))
                 return f"Patient {name}: Zuzahlungsbefreiung geändert ({bis})"
             elif "p_zuzahlungsbefreit" in payload:
                 befreit = "befreit" if payload.get("p_zuzahlungsbefreit") else "pflichtig"
@@ -131,7 +151,7 @@ def get_business_description(entry):
             return "SQL: Termin als abgerechnet markiert"
         elif "Delete from events" in sql:
             return "SQL: Termin(e) aus Kalender gelöscht"
-        return f"SQL-Operation ({first_word}): {sql[:50]}..."
+        return f"SQL-Operation ({first_word}): {format_german_date(sql[:50])}..."
 
     return f"{action.upper()} {table}" if table else action.upper()
 

@@ -203,6 +203,31 @@ function updateStats() {
     document.getElementById('stat-anomalies').textContent = anomalyCount;
 }
 
+function formatDateString(val) {
+    if (typeof val !== 'string' || !val) return val;
+
+    // ISO datetime with seconds: 2026-08-18 07:09:17 or 2026-08-18T07:09:17...
+    const dtMatch = val.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/);
+    if (dtMatch) {
+        return `${dtMatch[3]}.${dtMatch[2]}.${dtMatch[1]} ${dtMatch[4]}`;
+    }
+
+    // ISO datetime with minutes: 2026-08-18T07:09+02:00
+    const dtMinMatch = val.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}:\d{2})(?:Z|[+-]\d{2}:\d{2})?$/);
+    if (dtMinMatch) {
+        return `${dtMinMatch[3]}.${dtMinMatch[2]}.${dtMinMatch[1]} ${dtMinMatch[4]}`;
+    }
+
+    // ISO date only: 2026-08-18
+    const dateMatch = val.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dateMatch) {
+        return `${dateMatch[3]}.${dateMatch[2]}.${dateMatch[1]}`;
+    }
+
+    // Replace embedded YYYY-MM-DD dates inside text string
+    return val.replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, (m, y, mo, d) => `${d}.${mo}.${y}`);
+}
+
 function renderTimeline() {
     const tbody = document.getElementById('timeline-tbody');
     tbody.innerHTML = '';
@@ -263,7 +288,7 @@ function renderTimeline() {
 
         tr.innerHTML = `
             <td class="mono">${entry.line_number}</td>
-            <td class="mono">${entry.timestamp || ''}</td>
+            <td class="mono">${formatDateString(entry.timestamp) || ''}</td>
             <td class="mono">${entry.user || ''}</td>
             <td><span class="badge ${badgeClass}">${entry.action}</span></td>
             <td><strong>${entry.table || ''}</strong></td>
@@ -339,7 +364,7 @@ function createTreeNode(key, val, isExpanded = true) {
     } else if (typeof val === 'number') {
         node.innerHTML = `<span class="tree-key">${key}:</span> <span class="tree-number">${val}</span>`;
     } else if (typeof val === 'string') {
-        node.innerHTML = `<span class="tree-key">${key}:</span> <span class="tree-string">"${escapeHtml(val)}"</span>`;
+        node.innerHTML = `<span class="tree-key">${key}:</span> <span class="tree-string">"${escapeHtml(formatDateString(val))}"</span>`;
     } else if (typeof val === 'object') {
         const isArray = Array.isArray(val);
         const keys = Object.keys(val);
@@ -427,9 +452,9 @@ function formatDiffValue(val) {
         return `<span class="tree-number">${val}</span>`;
     }
     if (typeof val === 'object') {
-        return escapeHtml(JSON.stringify(val, null, 2));
+        return escapeHtml(formatDateString(JSON.stringify(val, null, 2)));
     }
-    return `"${escapeHtml(String(val))}"`;
+    return `"${escapeHtml(formatDateString(String(val)))}"`;
 }
 
 function renderTracer(entry) {
