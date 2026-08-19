@@ -70,7 +70,11 @@ class LogAnalyzerRequestHandler(SimpleHTTPRequestHandler):
             filename = self.headers.get('X-File-Name', '')
             entity_map = parse_external_entity_data(raw_body, filename=filename)
             sql_engine.import_external_tables(entity_map)
-            self.send_json_response({"entity_names": entity_map, "count": len(entity_map)})
+            self.send_json_response({
+                "entity_names": entity_map,
+                "count": len(entity_map),
+                "schema": sql_engine.get_schema()
+            })
             return
 
         elif parsed_url.path == "/api/query_sql":

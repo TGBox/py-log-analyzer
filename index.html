@@ -293,6 +293,26 @@
         </main>
     </div>
 
+    <!-- Modal for Import Results & Available SQL Tables -->
+    <div id="import-results-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><span class="modal-icon">✅</span> Stammdaten erfolgreich importiert</h3>
+                <button id="btn-close-modal" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="import-summary-text" style="color: var(--text-primary); font-weight: 500;">Verarbeitete Dateien: ...</p>
+                
+                <h4 style="margin-top: 16px; margin-bottom: 8px; font-size: 13px; color: var(--text-primary);">Verfügbare SQL-Tabellen in der Datenbank:</h4>
+                <div id="import-tables-list" class="import-tables-grid"></div>
+            </div>
+            <div class="modal-footer">
+                <button id="btn-open-sql-tab" class="btn btn-primary">💻 Zur SQL-Konsole wechseln</button>
+                <button id="btn-close-modal-footer" class="btn btn-secondary">Schließen</button>
+            </div>
+        </div>
+    </div>
+
     <script src="gui.js"></script>
 </body>
 </html>

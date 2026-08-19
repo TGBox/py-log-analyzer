@@ -67,11 +67,43 @@ def check_anomalies(entry):
     return anomalies
 
 
-def extract_entity_ids(entry):
-    ids = set()
+def get_entity_type_label(field_key, table_name=""):
+    key = field_key.lower() if field_key else ""
+    if key in ("group_id", "groupid"):
+        return "Group-ID"
+    elif key in ("patient_id", "patienten_id"):
+        return "Patient-ID"
+    elif key in ("rechnung_id", "rechnungid", "rechnungnr"):
+        return "Rechnungs-ID"
+    elif key in ("events_id", "event_id", "parentevent_id"):
+        return "Termin-ID"
+    elif key in ("rezept_id", "rezepte_id"):
+        return "Rezept-ID"
+    elif key in ("refid", "referenz_id"):
+        return "Referenz-ID"
+    elif key == "id":
+        if table_name == "patienten":
+            return "Patient-ID"
+        elif table_name == "events":
+            return "Termin-ID"
+        elif table_name == "rechnung":
+            return "Rechnungs-ID"
+        elif table_name == "rezepte":
+            return "Rezept-ID"
+        elif table_name == "history":
+            return "Historie-ID"
+        return f"{table_name.capitalize()}-ID" if table_name else "ID"
+    return field_key.replace("_", "-").upper()
+
+
+def extract_entity_details(entry):
+    details_map = {} # id -> entity_type_label
+    table_name = entry.get("table", "")
     target_id = entry.get("target_id")
+
     if target_id and isinstance(target_id, str):
-        ids.add(target_id)
+        label = get_entity_type_label("id", table_name)
+        details_map[target_id] = label
 
     payload = entry.get("payload")
 
@@ -79,7 +111,9 @@ def extract_entity_ids(entry):
         if isinstance(obj, dict):
             for k, v in obj.items():
                 if isinstance(v, str) and v and (k.endswith("_id") or k in ("id", "patient_id", "group_id", "rechnung_id", "events_id", "refid", "patienten_id", "parentevent_id")):
-                    ids.add(v)
+                    label = get_entity_type_label(k, table_name)
+                    if v not in details_map or details_map[v] == "ID":
+                        details_map[v] = label
                 elif isinstance(v, (dict, list)):
                     find_ids(v)
         elif isinstance(obj, list):
@@ -89,7 +123,11 @@ def extract_entity_ids(entry):
     if isinstance(payload, (dict, list)):
         find_ids(payload)
 
-    return list(ids)
+    return details_map
+
+
+def extract_entity_ids(entry):
+    return list(extract_entity_details(entry).keys())
 
 
 def extract_entity_name_from_entry(entry):
@@ -241,19 +279,23 @@ def analyze_log_entries(parsed_entries, external_entity_map=None):
 
     processed = []
     entity_index = {} # id -> list of entry indices
+    entity_labels = {} # id -> entity_type_label
 
     # Pass 2: Enrich individual entries with resolved descriptions and entity info
     for entry in parsed_entries:
         desc = get_business_description(entry, entity_names=entity_names)
         anoms = check_anomalies(entry)
-        entities = extract_entity_ids(entry)
+        entities_details = extract_entity_details(entry)
+        entities = list(entities_details.keys())
         
         entities_info = []
-        for eid in entities:
+        for eid, elabel in entities_details.items():
             name = entity_names.get(eid)
+            entity_labels[eid] = elabel
             entities_info.append({
                 "id": eid,
-                "name": name
+                "name": name,
+                "label": elabel
             })
 
         enriched = dict(entry)
@@ -328,5 +370,6 @@ def analyze_log_entries(parsed_entries, external_entity_map=None):
         "all_entries": processed,
         "entity_index": entity_index,
         "entity_names": entity_names,
+        "entity_labels": entity_labels,
         "total_count": len(parsed_entries)
     }

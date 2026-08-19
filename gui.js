@@ -59,6 +59,22 @@ function initEvents() {
         renderTimeline();
     });
 
+    // Modal Close handlers
+    const btnCloseModal = document.getElementById('btn-close-modal');
+    const btnCloseModalFooter = document.getElementById('btn-close-modal-footer');
+    const btnOpenSqlTab = document.getElementById('btn-open-sql-tab');
+    const modal = document.getElementById('import-results-modal');
+
+    if (btnCloseModal) btnCloseModal.addEventListener('click', () => modal.style.display = 'none');
+    if (btnCloseModalFooter) btnCloseModalFooter.addEventListener('click', () => modal.style.display = 'none');
+    if (btnOpenSqlTab) {
+        btnOpenSqlTab.addEventListener('click', () => {
+            modal.style.display = 'none';
+            const sqlTabBtn = document.querySelector('.tab-btn[data-tab="sql"]');
+            if (sqlTabBtn) sqlTabBtn.click();
+        });
+    }
+
     // Inspector Tabs
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -247,9 +263,17 @@ function handleEntitiesImport(e) {
 
     Promise.all(promises).then(() => {
         const totalMapped = Object.keys(logData.entity_names || {}).length;
-        alert(`${processedCount} Datei(en) erfolgreich verarbeitet! Insgesamt ${totalMapped} Entitäts-Namen geladen.`);
         renderTimeline();
         if (activeEntry) selectEntry(activeEntry);
+
+        fetch('/api/schema')
+            .then(res => res.json())
+            .then(schemaData => {
+                showImportResultsModal(processedCount, totalMapped, schemaData);
+            })
+            .catch(() => {
+                showImportResultsModal(processedCount, totalMapped, null);
+            });
     });
 }
 
@@ -544,21 +568,24 @@ function renderTracer(entry) {
     entities.forEach(eid => {
         const occurrences = (logData.entity_index[eid] || []).length;
         const name = (logData && logData.entity_names) ? logData.entity_names[eid] : null;
+        const elabel = (logData && logData.entity_labels) ? logData.entity_labels[eid] : 'ID';
         const nameTag = name ? `<span class="tracer-entity-name">👤 ${escapeHtml(name)}</span>` : '';
+        const typeTag = `<span class="badge badge-entity-type">${escapeHtml(elabel)}</span>`;
 
         const item = document.createElement('div');
         item.className = 'tracer-item';
         item.innerHTML = `
             <div class="tracer-item-header">
-                <div><strong>ID: ${eid}</strong> ${nameTag}</div>
+                <div>${typeTag}<strong>${eid}</strong> ${nameTag}</div>
                 <span class="badge badge-sql">${occurrences} Log-Einträge</span>
             </div>
-            <p style="font-size:11px; color:var(--text-secondary);">Klicken, um die gesamte Master-Timeline auf diese ID zu filtern.</p>
+            <p style="font-size:11px; color:var(--text-secondary);">Klicken, um die gesamte Master-Timeline auf diese ${escapeHtml(elabel)} zu filtern.</p>
         `;
 
         item.addEventListener('click', () => {
             activeEntityFilter = eid;
-            document.getElementById('entity-active-id').textContent = name ? `${name} (${eid})` : eid;
+            const filterLabel = `${elabel}: ${name ? `${name} (${eid})` : eid}`;
+            document.getElementById('entity-active-id').textContent = filterLabel;
             document.getElementById('entity-active-badge').style.display = 'flex';
             renderTimeline();
         });
@@ -745,4 +772,51 @@ function exportSQLResultsCSV() {
     a.download = 'sql_export.csv';
     a.click();
     URL.revokeObjectURL(url);
+}
+
+function showImportResultsModal(fileCount, totalNames, schemaData) {
+    const modal = document.getElementById('import-results-modal');
+    const summaryText = document.getElementById('import-summary-text');
+    const tablesList = document.getElementById('import-tables-list');
+
+    if (!modal) return;
+
+    summaryText.innerHTML = `<strong>${fileCount} Datei(en)</strong> erfolgreich verarbeitet. Insgesamt stehen nun <strong>${totalNames} Entitäts-Namen</strong> im Speicher zur Verfügung.`;
+
+    tablesList.innerHTML = '';
+    const tables = (schemaData && schemaData.tables) || {};
+    const counts = (schemaData && schemaData.row_counts) || {};
+
+    const tableNames = Object.keys(tables);
+    if (tableNames.length === 0) {
+        tablesList.innerHTML = '<em>Keine Tabellen gefunden.</em>';
+    } else {
+        tableNames.forEach(t => {
+            const card = document.createElement('div');
+            card.className = 'table-badge-card';
+            const cnt = counts[t] !== undefined ? `${counts[t]} Zeilen` : 'Tabelle';
+            card.innerHTML = `
+                <span class="table-badge-name">📁 ${escapeHtml(t)}</span>
+                <span class="table-badge-count">${cnt}</span>
+            `;
+            card.addEventListener('click', () => {
+                modal.style.display = 'none';
+                openSQLTabWithTable(t);
+            });
+            tablesList.appendChild(card);
+        });
+    }
+
+    modal.style.display = 'flex';
+}
+
+function openSQLTabWithTable(tableName) {
+    const sqlTabBtn = document.querySelector('.tab-btn[data-tab="sql"]');
+    if (sqlTabBtn) sqlTabBtn.click();
+
+    const input = document.getElementById('sql-query-input');
+    if (input) {
+        input.value = `SELECT * FROM "${tableName}" LIMIT 50;`;
+        runSQLQuery();
+    }
 }

@@ -172,18 +172,23 @@ class SQLEngine:
             return {"error": str(e)}
 
     def get_schema(self):
-        """Returns dict of available tables and column names."""
+        """Returns dict of available tables, column names, and row counts."""
         cursor = self.conn.cursor()
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
         tables = [row[0] for row in cursor.fetchall()]
 
         schema = {}
+        row_counts = {}
         for tbl in tables:
             try:
                 cursor.execute(f'PRAGMA table_info("{tbl}");')
                 cols = [row[1] for row in cursor.fetchall()]
                 schema[tbl] = cols
+
+                cursor.execute(f'SELECT count(*) FROM "{tbl}";')
+                cnt = cursor.fetchone()
+                row_counts[tbl] = cnt[0] if cnt else 0
             except Exception:
                 pass
 
-        return {"tables": schema}
+        return {"tables": schema, "row_counts": row_counts}
