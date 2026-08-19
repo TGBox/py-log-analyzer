@@ -196,40 +196,54 @@ function handleFileSelect(e) {
 }
 
 function handleEntitiesImport(e) {
-    const file = e.target.files[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
 
-    const reader = new FileReader();
-    reader.onload = function(evt) {
-        const body = evt.target.result;
-        fetch('/api/import_entities', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/octet-stream',
-                'X-File-Name': file.name
-            },
-            body: body
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.entity_names) {
-                if (!logData) logData = {};
-                if (!logData.entity_names) logData.entity_names = {};
-                Object.assign(logData.entity_names, data.entity_names);
-                
-                alert(`${data.count || Object.keys(data.entity_names).length} Entitäts-Namen erfolgreich importiert!`);
-                renderTimeline();
-                if (activeEntry) selectEntry(activeEntry);
+    let processedCount = 0;
+
+    const promises = files.map(file => {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                const body = evt.target.result;
+                fetch('/api/import_entities', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/octet-stream',
+                        'X-File-Name': file.name
+                    },
+                    body: body
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.entity_names) {
+                        if (!logData) logData = {};
+                        if (!logData.entity_names) logData.entity_names = {};
+                        Object.assign(logData.entity_names, data.entity_names);
+                        processedCount++;
+                    }
+                    resolve();
+                })
+                .catch(err => {
+                    console.error(`Error importing ${file.name}:`, err);
+                    resolve();
+                });
+            };
+
+            if (file.name.endsWith('.db') || file.name.endsWith('.sqlite') || file.name.endsWith('.sqlite3') || file.name.endsWith('.zip')) {
+                reader.readAsArrayBuffer(file);
+            } else {
+                reader.readAsText(file);
             }
-        })
-        .catch(err => console.error("Error importing entity data:", err));
-    };
+        });
+    });
 
-    if (file.name.endsWith('.db') || file.name.endsWith('.sqlite') || file.name.endsWith('.sqlite3')) {
-        reader.readAsArrayBuffer(file);
-    } else {
-        reader.readAsText(file);
-    }
+    Promise.all(promises).then(() => {
+        const totalMapped = Object.keys(logData.entity_names || {}).length;
+        alert(`${processedCount} Datei(en) erfolgreich verarbeitet! Insgesamt ${totalMapped} Entitäts-Namen geladen.`);
+        renderTimeline();
+        if (activeEntry) selectEntry(activeEntry);
+    });
 }
 
 function updateStats() {

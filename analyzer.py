@@ -1,4 +1,6 @@
 import os
+import io
+import zipfile
 import json
 import csv
 import sqlite3
@@ -125,9 +127,26 @@ def extract_entity_name_from_entry(entry):
 
 
 def parse_external_entity_data(content, filename=""):
-    """Parse JSON, CSV or SQLite database bytes/string into ID -> Name mapping."""
+    """Parse JSON, CSV, SQLite database or ZIP archive bytes/string into ID -> Name mapping."""
     names = {}
     ext = os.path.splitext(filename)[1].lower() if filename else ""
+
+    # ZIP Archive support
+    if ext == ".zip" or (isinstance(content, bytes) and content.startswith(b"PK\x03\x04")):
+        try:
+            zip_bytes = io.BytesIO(content) if isinstance(content, bytes) else content
+            with zipfile.ZipFile(zip_bytes, 'r') as zf:
+                for member_name in zf.namelist():
+                    if member_name.endswith('/') or member_name.startswith('__MACOSX'):
+                        continue
+                    file_ext = os.path.splitext(member_name)[1].lower()
+                    if file_ext in ('.csv', '.json', '.db', '.sqlite', '.sqlite3'):
+                        file_data = zf.read(member_name)
+                        extracted = parse_external_entity_data(file_data, filename=member_name)
+                        names.update(extracted)
+        except Exception as e:
+            print(f"Error parsing ZIP archive: {e}")
+        return names
 
     is_sqlite = ext in (".db", ".sqlite", ".sqlite3") or (isinstance(content, bytes) and content.startswith(b"SQLite format 3"))
 
