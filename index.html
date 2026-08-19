@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PyLogAnalyzer — Master-Detail Log Inspector</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Navigation Header -->
+        <header class="app-header">
+            <div class="header-brand">
+                <div class="logo-icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                        <polyline points="2 17 12 22 22 17"></polyline>
+                        <polyline points="2 12 12 17 22 12"></polyline>
+                    </svg>
+                </div>
+                <div class="brand-text">
+                    <h1>PyLogAnalyzer</h1>
+                    <span class="brand-subtitle">Master-Detail GUI & Entity Tracer</span>
+                </div>
+            </div>
+
+            <div class="header-actions">
+                <button id="btn-load-sample" class="btn btn-secondary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                        <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                    Beispiel-Log laden (sample.log)
+                </button>
+
+                <label for="file-input" class="btn btn-primary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    Eigene Logdatei öffnen
+                </label>
+                <input type="file" id="file-input" accept=".log,.txt,.json" style="display:none;">
+            </div>
+        </header>
+
+        <!-- Control Toolbar & Filter Bar -->
+        <div class="toolbar">
+            <div class="search-box">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="search-input" placeholder="Suche nach Begriffen, Name, Aktion oder ID (z.B. 6KCRE-MRANHX)...">
+                <button id="btn-clear-search" class="btn-icon" title="Suche zurücksetzen" style="display:none;">✕</button>
+            </div>
+
+            <div class="filter-chips">
+                <button class="chip active" data-filter="all">Alle</button>
+                <button class="chip chip-insert" data-filter="insert">Inserts</button>
+                <button class="chip chip-update" data-filter="update">Updates</button>
+                <button class="chip chip-delete" data-filter="delete">Deletes / SQL</button>
+                <button class="chip chip-anomaly" data-filter="anomaly">⚠️ Anomalien</button>
+            </div>
+
+            <div id="entity-active-badge" class="entity-badge" style="display:none;">
+                <span>Gefiltert auf Entität: <strong id="entity-active-id">---</strong></span>
+                <button id="btn-remove-entity-filter" class="btn-chip-close">✕</button>
+            </div>
+
+            <div class="stats-summary">
+                <div class="stat-item"><span id="stat-total">0</span> <label>Zeilen</label></div>
+                <div class="stat-item"><span id="stat-entities">0</span> <label>Entitäten</label></div>
+                <div class="stat-item stat-warning"><span id="stat-anomalies">0</span> <label>Anomalien</label></div>
+            </div>
+        </div>
+
+        <!-- Main Split Screen Workspace -->
+        <main class="main-split-container">
+            <!-- Left Master Timeline Panel -->
+            <section class="master-panel">
+                <div class="panel-header">
+                    <h2>Timeline & Benutzer-Aktionen</h2>
+                    <div class="panel-controls">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="toggle-collapse-noise" checked>
+                            <span class="slider"></span>
+                            <span class="toggle-label">Tipp-Rauschen zusammenfassen</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="table-scroll-container">
+                    <table class="master-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 60px;">#</th>
+                                <th style="width: 140px;">Zeitstempel</th>
+                                <th style="width: 130px;">Nutzer</th>
+                                <th style="width: 90px;">Aktion</th>
+                                <th style="width: 120px;">Tabelle</th>
+                                <th>Klartext-Beschreibung</th>
+                                <th style="width: 70px;">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="timeline-tbody">
+                            <tr class="empty-row">
+                                <td colspan="7">Lade Beispieldatei oder öffnen Sie eine Logdatei...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Splitter Divider -->
+            <div class="panel-resizer" id="resizer"></div>
+
+            <!-- Right Detail Inspector Panel -->
+            <section class="detail-panel">
+                <div class="inspector-header">
+                    <div class="inspector-title-area">
+                        <span id="inspector-line-num" class="line-badge">Zeile ---</span>
+                        <h3 id="inspector-title">Keine Zeile ausgewählt</h3>
+                        <div id="inspector-badges" class="inspector-badges"></div>
+                    </div>
+
+                    <!-- Inspector Tabs -->
+                    <div class="inspector-tabs">
+                        <button class="tab-btn active" data-tab="tree">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="9" cy="7" r="4"></circle>
+                                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                            </svg>
+                            JSON & SQL Baum
+                        </button>
+                        <button class="tab-btn" data-tab="diff">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="18" y1="20" x2="18" y2="10"></line>
+                                <line x1="12" y1="20" x2="12" y2="4"></line>
+                                <line x1="6" y1="20" x2="6" y2="14"></line>
+                            </svg>
+                            Field Diff
+                        </button>
+                        <button class="tab-btn" data-tab="tracer">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                            </svg>
+                            Entitäts-Tracer
+                        </button>
+                        <button class="tab-btn" data-tab="raw">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="16 18 22 12 16 6"></polyline>
+                                <polyline points="8 6 2 12 8 18"></polyline>
+                            </svg>
+                            Rohdaten
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Inspector Content Area -->
+                <div class="inspector-body">
+                    <!-- Tab 1: JSON Tree -->
+                    <div class="tab-content active" id="tab-tree">
+                        <div id="tree-container" class="tree-container">
+                            <div class="empty-state">Wählen Sie einen Log-Eintrag aus der linken Liste.</div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 2: Diff View -->
+                    <div class="tab-content" id="tab-diff">
+                        <div id="diff-container" class="diff-container">
+                            <div class="empty-state">Wählen Sie einen Update-Eintrag mit vorherigen Änderungen.</div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 3: Entity Tracer -->
+                    <div class="tab-content" id="tab-tracer">
+                        <div id="tracer-container" class="tracer-container">
+                            <div class="empty-state">Keine verknüpften Entitäten in diesem Eintrag.</div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 4: Raw Log View -->
+                    <div class="tab-content" id="tab-raw">
+                        <div class="raw-actions">
+                            <button id="btn-copy-raw" class="btn btn-sm btn-secondary">Kopieren</button>
+                        </div>
+                        <pre id="raw-container" class="raw-container"></pre>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="gui.js"></script>
+</body>
+</html>
