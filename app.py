@@ -7,7 +7,7 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse
 import webview
 
-from parser import parse_log_file, parse_log_line
+from parser import parse_log_file, parse_log_line, parse_log_content
 from analyzer import analyze_log_entries, parse_external_entity_data
 from sql_engine import SQLEngine
 

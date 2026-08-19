@@ -204,20 +204,19 @@ def parse_external_entity_data(content, filename=""):
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
             tables = [row[0] for row in cursor.fetchall()]
 
-            for tbl in ("patienten", "patients", "events", "rezepte"):
-                if tbl in tables:
-                    try:
-                        cursor.execute(f"SELECT * FROM {tbl}")
-                        cols = [description[0].lower() for description in cursor.description]
-                        rows = cursor.fetchall()
-                        for row in rows:
-                            row_dict = dict(zip(cols, row))
-                            e_id = row_dict.get("id") or row_dict.get("patient_id") or row_dict.get("p_nr")
-                            e_name = extract_patient_name(row_dict) or row_dict.get("name")
-                            if e_id and e_name:
-                                names[str(e_id)] = str(e_name).strip()
-                    except Exception:
-                        pass
+            for tbl in tables:
+                try:
+                    cursor.execute(f"SELECT * FROM {tbl}")
+                    cols = [description[0].lower() for description in cursor.description]
+                    rows = cursor.fetchall()
+                    for row in rows:
+                        row_dict = dict(zip(cols, row))
+                        e_id = row_dict.get("id") or row_dict.get("user_id") or row_dict.get("userid") or row_dict.get("patient_id") or row_dict.get("p_nr")
+                        e_name = extract_patient_name(row_dict) or row_dict.get("name") or row_dict.get("username")
+                        if e_id and e_name:
+                            names[str(e_id)] = str(e_name).strip()
+                except Exception:
+                    pass
             conn.close()
             if os.path.exists(tmp_path):
                 try:
@@ -234,8 +233,8 @@ def parse_external_entity_data(content, filename=""):
             reader = csv.DictReader(text.splitlines(), delimiter=delimiter)
             for row in reader:
                 norm_row = {k.strip().lower(): v.strip() for k, v in row.items() if k and v}
-                e_id = norm_row.get("id") or norm_row.get("patient_id") or norm_row.get("patienten_id") or norm_row.get("p_nr")
-                e_name = extract_patient_name(norm_row) or norm_row.get("name")
+                e_id = norm_row.get("id") or norm_row.get("user_id") or norm_row.get("userid") or norm_row.get("patient_id") or norm_row.get("patienten_id") or norm_row.get("p_nr")
+                e_name = extract_patient_name(norm_row) or norm_row.get("name") or norm_row.get("username")
                 if e_id and e_name:
                     names[str(e_id)] = str(e_name).strip()
         except Exception as e:
@@ -250,14 +249,14 @@ def parse_external_entity_data(content, filename=""):
                     if isinstance(v, str):
                         names[str(k)] = v
                     elif isinstance(v, dict):
-                        name = extract_patient_name(v) or v.get("name")
+                        name = extract_patient_name(v) or v.get("name") or v.get("username")
                         if name:
                             names[str(k)] = name
             elif isinstance(data, list):
                 for item in data:
                     if isinstance(item, dict):
-                        e_id = item.get("id") or item.get("patient_id")
-                        e_name = extract_patient_name(item) or item.get("name")
+                        e_id = item.get("id") or item.get("user_id") or item.get("userid") or item.get("patient_id")
+                        e_name = extract_patient_name(item) or item.get("name") or item.get("username")
                         if e_id and e_name:
                             names[str(e_id)] = str(e_name).strip()
         except Exception as e:
@@ -304,8 +303,14 @@ def analyze_log_entries(parsed_entries, external_entity_map=None):
                 "label": elabel
             })
 
+        user_id = entry.get("user")
+        user_name = entity_names.get(user_id) if user_id else None
+        if user_id and user_name:
+            entity_labels[user_id] = "Nutzer-ID"
+
         enriched = dict(entry)
         enriched["description"] = desc
+        enriched["user_name"] = user_name
         enriched["anomalies"] = anoms
         enriched["entities"] = entities
         enriched["entities_info"] = entities_info

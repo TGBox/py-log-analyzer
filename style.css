@@ -372,6 +372,7 @@ body {
     border-collapse: collapse;
     font-size: 12px;
     text-align: left;
+    table-layout: fixed;
 }
 
 .master-table th {
@@ -386,6 +387,32 @@ body {
     padding: 9px 12px;
     border-bottom: 1px solid var(--border-color);
     z-index: 10;
+    user-select: none;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.col-resizer {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 7px;
+    height: 100%;
+    cursor: col-resize;
+    user-select: none;
+    z-index: 15;
+}
+
+.col-resizer:hover,
+.col-resizer.resizing {
+    background-color: var(--primary-blue);
+    opacity: 0.8;
+}
+
+.user-name-tag {
+    color: #60a5fa;
+    font-weight: 500;
 }
 
 .master-table td {

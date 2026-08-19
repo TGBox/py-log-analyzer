@@ -107,6 +107,8 @@ function initEvents() {
     });
 
     // Resizer Dragging
+    initTableColumnResizer();
+
     const resizer = document.getElementById('resizer');
     const masterPanel = document.querySelector('.master-panel');
     const detailPanel = document.querySelector('.detail-panel');
@@ -147,6 +149,44 @@ function initEvents() {
             document.body.style.cursor = 'default';
             document.body.style.userSelect = 'auto';
         }
+    });
+}
+
+function initTableColumnResizer() {
+    const table = document.querySelector('.master-table');
+    if (!table) return;
+
+    const resizers = table.querySelectorAll('.col-resizer');
+    resizers.forEach(resizer => {
+        const th = resizer.parentElement;
+        let startX = 0;
+        let startWidth = 0;
+
+        resizer.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+            startX = e.pageX;
+            startWidth = th.offsetWidth;
+            resizer.classList.add('resizing');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+
+            const onMouseMove = (ev) => {
+                const diff = ev.pageX - startX;
+                const newWidth = Math.max(35, startWidth + diff);
+                th.style.width = `${newWidth}px`;
+            };
+
+            const onMouseUp = () => {
+                resizer.classList.remove('resizing');
+                document.body.style.cursor = 'default';
+                document.body.style.userSelect = 'auto';
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            };
+
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
     });
 }
 
@@ -427,9 +467,10 @@ function renderTimeline() {
             const rawText = (entry.raw || '').toLowerCase();
             const descText = (entry.description || '').toLowerCase();
             const userText = (entry.user || '').toLowerCase();
+            const userNameText = (entry.user_name || '').toLowerCase();
             const tableText = (entry.table || '').toLowerCase();
             const fileText = (entry.file_name || '').toLowerCase();
-            return rawText.includes(searchQuery) || descText.includes(searchQuery) || userText.includes(searchQuery) || tableText.includes(searchQuery) || fileText.includes(searchQuery);
+            return rawText.includes(searchQuery) || descText.includes(searchQuery) || userText.includes(searchQuery) || userNameText.includes(searchQuery) || tableText.includes(searchQuery) || fileText.includes(searchQuery);
         }
 
         return true;
@@ -458,12 +499,14 @@ function renderTimeline() {
         }
 
         const fileNameDisplay = entry.file_name || 'sample.log';
+        const userName = entry.user_name || ((logData && logData.entity_names) ? logData.entity_names[entry.user] : null);
+        const userDisplay = userName ? `<span class="user-name-tag" title="User ID: ${escapeHtml(entry.user || '')}">👤 ${escapeHtml(userName)}</span>` : escapeHtml(entry.user || '');
 
         tr.innerHTML = `
             <td class="mono">${entry.line_number}</td>
             <td class="mono"><span class="badge-file" title="${escapeHtml(fileNameDisplay)}">📁 ${escapeHtml(fileNameDisplay)}</span></td>
             <td class="mono">${formatDateString(entry.timestamp) || ''}</td>
-            <td class="mono">${entry.user || ''}</td>
+            <td class="mono">${userDisplay}</td>
             <td><span class="badge ${badgeClass}">${entry.action}</span></td>
             <td><strong>${entry.table || ''}</strong></td>
             <td>${escapeHtml(entry.description || '')}</td>
@@ -495,10 +538,14 @@ function selectEntry(entry) {
     document.getElementById('inspector-line-num').textContent = `Zeile ${entry.line_number}`;
     document.getElementById('inspector-title').textContent = entry.description || entry.raw;
     
+    const userName = entry.user_name || ((logData && logData.entity_names) ? logData.entity_names[entry.user] : null);
+    const userBadgeText = userName ? `Nutzer: ${userName} (${entry.user || ''})` : `Nutzer: ${entry.user || 'N/A'}`;
+
     const badgesContainer = document.getElementById('inspector-badges');
     badgesContainer.innerHTML = `
         <span class="badge badge-${entry.action === 'insert' ? 'insert' : entry.action === 'update' ? 'update' : 'sql'}">${entry.action}</span>
         <span class="badge badge-sql">${entry.table || 'N/A'}</span>
+        <span class="badge badge-sql" title="Nutzer">${escapeHtml(userBadgeText)}</span>
     `;
 
     // Render Tab 1: JSON Tree

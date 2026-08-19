@@ -27,10 +27,11 @@ def format_german_date(val):
 
 
 def extract_patient_name(data):
+    """Extract patient or user name from data dictionary."""
     if not isinstance(data, dict):
         return None
     
-    # Direct fields
+    # Direct patient fields (p_vname + p_name)
     if "p_name" in data or "p_vname" in data:
         vname = data.get("p_vname", "") or ""
         name = data.get("p_name", "") or ""
@@ -45,6 +46,25 @@ def extract_patient_name(data):
             return lines[0].strip() if lines else pat.strip()
         elif isinstance(pat, dict):
             return extract_patient_name(pat)
+
+    # User / Person fields (vorname, nachname, vname, name, first_name, last_name)
+    vname = data.get("vorname") or data.get("vname") or data.get("first_name") or data.get("firstname") or ""
+    name = data.get("nachname") or data.get("name") or data.get("last_name") or data.get("lastname") or ""
+
+    if vname or name:
+        full = f"{vname} {name}".strip()
+        if full and len(full) > 1:
+            return full
+
+    # Display name / full name / username / benutzername
+    for key in ("display_name", "fullname", "full_name", "benutzername", "username"):
+        if data.get(key) and isinstance(data[key], str):
+            return str(data[key]).strip()
+
+    # Fallback to email / mail / login
+    for key in ("email", "mail", "emailadresse", "login"):
+        if data.get(key) and isinstance(data[key], str):
+            return str(data[key]).strip()
 
     return None
 
