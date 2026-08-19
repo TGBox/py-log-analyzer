@@ -1,0 +1,14 @@
+[project]
+name = "py-log-analyzer"
+version = "1.0.0"
+description = "A python based GUI to present log files in a human-readable format. Allows loading of multiple log files at once. Allows import of database tables for better referencing. Includes options to query and change the data via SQL statements."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pywebview>=5.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pyinstaller>=6.0.0",
+]
