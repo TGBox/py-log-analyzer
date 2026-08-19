@@ -7,6 +7,7 @@ let collapseNoise = true;
 document.addEventListener('DOMContentLoaded', () => {
     initEvents();
     initThemeToggle();
+    initSQLConsole();
     loadSampleLog();
 });
 
@@ -571,4 +572,177 @@ function renderTracer(entry) {
 function escapeHtml(str) {
     if (typeof str !== 'string') return str;
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+let lastSQLResult = null;
+
+function initSQLConsole() {
+    const btnRun = document.getElementById('btn-run-sql');
+    const btnClear = document.getElementById('btn-clear-sql');
+    const btnExport = document.getElementById('btn-export-sql-csv');
+    const btnSchema = document.getElementById('btn-show-schema');
+    const inputQuery = document.getElementById('sql-query-input');
+    const selectTemplates = document.getElementById('sql-templates-select');
+
+    if (!btnRun || !inputQuery) return;
+
+    btnRun.addEventListener('click', runSQLQuery);
+    btnClear.addEventListener('click', () => {
+        inputQuery.value = '';
+        document.getElementById('sql-status-bar').textContent = '';
+        document.getElementById('sql-status-bar').className = 'sql-status';
+        document.getElementById('sql-results-container').innerHTML = '<div class="empty-state">Geben Sie eine SQL-Abfrage ein und klicken Sie auf "Ausführen".</div>';
+        btnExport.style.display = 'none';
+    });
+
+    inputQuery.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            runSQLQuery();
+        }
+    });
+
+    if (selectTemplates) {
+        selectTemplates.addEventListener('change', (e) => {
+            if (e.target.value) {
+                inputQuery.value = e.target.value;
+                runSQLQuery();
+            }
+        });
+    }
+
+    if (btnSchema) btnSchema.addEventListener('click', toggleSchemaBrowser);
+    if (btnExport) btnExport.addEventListener('click', exportSQLResultsCSV);
+}
+
+function toggleSchemaBrowser() {
+    const box = document.getElementById('sql-schema-container');
+    if (box.style.display !== 'none') {
+        box.style.display = 'none';
+        return;
+    }
+
+    fetch('/api/schema')
+        .then(res => res.json())
+        .then(data => {
+            const tables = data.tables || {};
+            box.innerHTML = '';
+            const tableNames = Object.keys(tables);
+            if (tableNames.length === 0) {
+                box.innerHTML = '<em>Keine Tabellen geladen.</em>';
+            } else {
+                tableNames.forEach(t => {
+                    const item = document.createElement('div');
+                    item.className = 'sql-schema-table-item';
+                    item.innerHTML = `<span class="sql-schema-table-name">${escapeHtml(t)}:</span> <span class="sql-schema-cols">${escapeHtml((tables[t] || []).join(', '))}</span>`;
+                    box.appendChild(item);
+                });
+            }
+            box.style.display = 'block';
+        })
+        .catch(err => console.error("Error fetching schema:", err));
+}
+
+function runSQLQuery() {
+    const query = document.getElementById('sql-query-input').value.trim();
+    const statusBar = document.getElementById('sql-status-bar');
+    const container = document.getElementById('sql-results-container');
+    const btnExport = document.getElementById('btn-export-sql-csv');
+
+    if (!query) {
+        statusBar.textContent = 'Bitte geben Sie eine SQL-Abfrage ein.';
+        statusBar.className = 'sql-status error';
+        return;
+    }
+
+    statusBar.textContent = 'Führe SQL-Abfrage aus...';
+    statusBar.className = 'sql-status';
+
+    fetch('/api/query_sql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: query })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.error) {
+            statusBar.textContent = `Fehler: ${data.error}`;
+            statusBar.className = 'sql-status error';
+            container.innerHTML = `<div class="empty-state" style="color: #ef4444;">${escapeHtml(data.error)}</div>`;
+            btnExport.style.display = 'none';
+            lastSQLResult = null;
+            return;
+        }
+
+        lastSQLResult = data;
+        statusBar.textContent = `Erfolgreich (${data.row_count} Zeilen in ${data.execution_time_ms} ms)`;
+        statusBar.className = 'sql-status success';
+        btnExport.style.display = 'inline-flex';
+
+        renderSQLResultsTable(data);
+    })
+    .catch(err => {
+        statusBar.textContent = `Netzwerk-Fehler: ${err}`;
+        statusBar.className = 'sql-status error';
+    });
+}
+
+function renderSQLResultsTable(data) {
+    const container = document.getElementById('sql-results-container');
+    container.innerHTML = '';
+
+    const cols = data.columns || [];
+    const rows = data.rows || [];
+
+    if (cols.length === 0 || rows.length === 0) {
+        container.innerHTML = '<div class="empty-state">Die Abfrage lieferte 0 Zeilen zurück.</div>';
+        return;
+    }
+
+    const table = document.createElement('table');
+    table.className = 'sql-results-table';
+
+    let theadHtml = '<thead><tr>';
+    cols.forEach(c => {
+        theadHtml += `<th>${escapeHtml(c)}</th>`;
+    });
+    theadHtml += '</tr></thead>';
+
+    let tbodyHtml = '<tbody>';
+    rows.forEach(r => {
+        tbodyHtml += '<tr>';
+        r.forEach(val => {
+            const formatted = val === null ? 'null' : (typeof val === 'object' ? JSON.stringify(val) : String(val));
+            tbodyHtml += `<td title="${escapeHtml(formatted)}">${escapeHtml(formatDateString(formatted))}</td>`;
+        });
+        tbodyHtml += '</tr>';
+    });
+    tbodyHtml += '</tbody>';
+
+    table.innerHTML = theadHtml + tbodyHtml;
+    container.appendChild(table);
+}
+
+function exportSQLResultsCSV() {
+    if (!lastSQLResult || !lastSQLResult.columns || !lastSQLResult.rows) return;
+
+    const cols = lastSQLResult.columns;
+    const rows = lastSQLResult.rows;
+
+    let csvContent = cols.map(c => `"${c.replace(/"/g, '""')}"`).join(';') + '\n';
+    rows.forEach(r => {
+        const rowStr = r.map(val => {
+            const str = val === null ? '' : String(val);
+            return `"${str.replace(/"/g, '""')}"`;
+        }).join(';');
+        csvContent += rowStr + '\n';
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'sql_export.csv';
+    a.click();
+    URL.revokeObjectURL(url);
 }

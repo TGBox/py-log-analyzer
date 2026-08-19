@@ -661,6 +661,129 @@ body {
     margin-left: 6px;
 }
 
+/* SQL Console Tab Styles */
+.sql-console-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    height: 100%;
+}
+
+.sql-toolbar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.sql-schema-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 10px 14px;
+    max-height: 140px;
+    overflow-y: auto;
+    font-size: 11px;
+}
+
+.sql-schema-table-item {
+    margin-bottom: 6px;
+}
+
+.sql-schema-table-name {
+    font-weight: 600;
+    color: var(--primary-blue);
+    margin-right: 6px;
+}
+
+.sql-schema-cols {
+    color: var(--text-secondary);
+}
+
+.sql-editor-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#sql-query-input {
+    width: 100%;
+    background: var(--bg-darker);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 10px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 12px;
+    resize: vertical;
+}
+
+#sql-query-input:focus {
+    outline: none;
+    border-color: var(--primary-blue);
+    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.sql-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.sql-status {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-left: auto;
+}
+
+.sql-status.error {
+    color: #ef4444;
+    font-weight: 500;
+}
+
+.sql-status.success {
+    color: #10b981;
+}
+
+.sql-results-box {
+    flex: 1;
+    overflow: auto;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    max-height: 350px;
+}
+
+.sql-results-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.sql-results-table th {
+    background: var(--bg-darker);
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--primary-blue);
+}
+
+.sql-results-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sql-results-table tr:hover {
+    background: var(--hover-bg);
+}
+
 /* Raw View */
 .raw-container {
     background: var(--raw-bg);
