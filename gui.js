@@ -4,6 +4,8 @@ let activeFilter = 'all';
 let activeEntityFilter = null;
 let activeFileFilter = '';
 let collapseNoise = true;
+let prettyPrintRaw = localStorage.getItem('pretty_print_raw') !== 'false';
+let rawIndentSize = localStorage.getItem('raw_indent_size') || '2';
 
 document.addEventListener('DOMContentLoaded', () => {
     initEvents();
@@ -68,6 +70,47 @@ function initEvents() {
         collapseNoise = e.target.checked;
         renderTimeline();
     });
+
+    // Raw View Pretty Print & Indent Toggle
+    const togglePrettyRaw = document.getElementById('toggle-pretty-raw');
+    const selectIndentSize = document.getElementById('select-indent-size');
+    const btnCopyRaw = document.getElementById('btn-copy-raw');
+
+    if (togglePrettyRaw) {
+        togglePrettyRaw.checked = prettyPrintRaw;
+        togglePrettyRaw.addEventListener('change', (e) => {
+            prettyPrintRaw = e.target.checked;
+            localStorage.setItem('pretty_print_raw', prettyPrintRaw);
+            if (activeEntry) renderRawView(activeEntry);
+        });
+    }
+
+    if (selectIndentSize) {
+        selectIndentSize.value = rawIndentSize;
+        selectIndentSize.addEventListener('change', (e) => {
+            rawIndentSize = e.target.value;
+            localStorage.setItem('raw_indent_size', rawIndentSize);
+            if (activeEntry) renderRawView(activeEntry);
+        });
+    }
+
+    if (btnCopyRaw) {
+        btnCopyRaw.addEventListener('click', () => {
+            const rawContainer = document.getElementById('raw-container');
+            if (!rawContainer || !rawContainer.textContent) return;
+            navigator.clipboard.writeText(rawContainer.textContent).then(() => {
+                const originalHtml = btnCopyRaw.innerHTML;
+                btnCopyRaw.textContent = 'Kopiert!';
+                btnCopyRaw.classList.add('btn-success');
+                setTimeout(() => {
+                    btnCopyRaw.innerHTML = originalHtml;
+                    btnCopyRaw.classList.remove('btn-success');
+                }, 1500);
+            }).catch(err => {
+                console.error('Kopieren fehlgeschlagen:', err);
+            });
+        });
+    }
 
     // Modal Close handlers
     const btnCloseModal = document.getElementById('btn-close-modal');
@@ -558,7 +601,58 @@ function selectEntry(entry) {
     renderTracer(entry);
 
     // Render Tab 4: Raw
-    document.getElementById('raw-container').textContent = entry.raw || '';
+    renderRawView(entry);
+}
+
+function renderRawView(entry) {
+    const rawContainer = document.getElementById('raw-container');
+    if (!rawContainer) return;
+    if (!entry || !entry.raw) {
+        rawContainer.textContent = '';
+        return;
+    }
+    rawContainer.textContent = formatRawLog(entry, prettyPrintRaw, rawIndentSize);
+}
+
+function formatRawLog(entry, pretty = true, indentSize = '2') {
+    if (!entry || !entry.raw) return '';
+    if (!pretty) return entry.raw;
+
+    const indent = indentSize === 'tab' ? '\t' : (parseInt(indentSize, 10) || 2);
+
+    // 1. Check if entry has parsed payload object
+    if (entry.payload && typeof entry.payload === 'object') {
+        const rawStr = entry.raw;
+        const firstBrace = rawStr.search(/[\{\[]/);
+        if (firstBrace !== -1) {
+            const prefix = rawStr.substring(0, firstBrace).trimEnd();
+            const prettyJson = JSON.stringify(entry.payload, null, indent);
+            return prefix ? `${prefix}\n${prettyJson}` : prettyJson;
+        }
+        return JSON.stringify(entry.payload, null, indent);
+    }
+
+    // 2. Fallback: try parsing JSON substring inside raw line
+    const firstBrace = entry.raw.search(/[\{\[]/);
+    if (firstBrace !== -1) {
+        const prefix = entry.raw.substring(0, firstBrace).trimEnd();
+        const jsonCandidate = entry.raw.substring(firstBrace);
+        try {
+            const parsed = JSON.parse(jsonCandidate);
+            const prettyJson = JSON.stringify(parsed, null, indent);
+            return prefix ? `${prefix}\n${prettyJson}` : prettyJson;
+        } catch (e) {
+            // Ignore parse error
+        }
+    }
+
+    // 3. Fallback: try parsing full raw line as JSON
+    try {
+        const parsed = JSON.parse(entry.raw);
+        return JSON.stringify(parsed, null, indent);
+    } catch (e) {
+        return entry.raw;
+    }
 }
 
 function renderJsonTree(entry) {

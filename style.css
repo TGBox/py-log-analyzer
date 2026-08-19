@@ -840,16 +840,57 @@ body {
 }
 
 /* Raw View */
+.raw-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.raw-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.indent-size-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.indent-size-label {
+    white-space: nowrap;
+}
+
+.form-select-sm {
+    padding: 3px 8px;
+    font-size: 11px;
+    border-radius: 4px;
+    height: 26px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-card);
+    color: var(--text-primary);
+}
+
 .raw-container {
     background: var(--raw-bg);
     border: 1px solid var(--border-color);
     border-radius: 6px;
-    padding: 12px;
-    font-family: 'Consolas', 'Monaco', monospace;
-    font-size: 11px;
+    padding: 14px;
+    font-family: 'Consolas', 'Monaco', 'Fira Code', monospace;
+    font-size: 12px;
+    line-height: 1.5;
     color: var(--text-primary);
     white-space: pre-wrap;
     word-break: break-all;
+    max-height: calc(100vh - 280px);
+    overflow-y: auto;
 }
 
 /* Modal Overlay & Card */

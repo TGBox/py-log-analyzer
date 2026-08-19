@@ -235,7 +235,28 @@
                     <!-- Tab 4: Raw Log View -->
                     <div class="tab-content" id="tab-raw">
                         <div class="raw-actions">
-                            <button id="btn-copy-raw" class="btn btn-sm btn-secondary">Kopieren</button>
+                            <div class="raw-controls">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="toggle-pretty-raw" checked>
+                                    <span class="slider"></span>
+                                    <span class="toggle-label">JSON eingerückt anzeigen</span>
+                                </label>
+                                <div class="indent-size-wrapper">
+                                    <span class="indent-size-label">Einrückung:</span>
+                                    <select id="select-indent-size" class="form-select form-select-sm">
+                                        <option value="2" selected>2 Leerzeichen</option>
+                                        <option value="4">4 Leerzeichen</option>
+                                        <option value="tab">Tabulator</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button id="btn-copy-raw" class="btn btn-sm btn-secondary">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                </svg>
+                                Kopieren
+                            </button>
                         </div>
                         <pre id="raw-container" class="raw-container"></pre>
                     </div>
