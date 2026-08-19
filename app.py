@@ -118,7 +118,8 @@ def main():
         url=app_url,
         width=1350,
         height=850,
-        min_size=(900, 600)
+        min_size=(900, 600),
+        maximized=True
     )
     
     webview.start()
