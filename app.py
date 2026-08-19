@@ -1,32 +1,46 @@
 import os
+import sys
 import json
-import webbrowser
+import socket
+import threading
 from http.server import HTTPServer, SimpleHTTPRequestHandler
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
+import webview
 
 from parser import parse_log_file, parse_log_line
 from analyzer import analyze_log_entries
 
-PORT = 8050
-WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
+def get_resource_path(relative_path=""):
+    """Get absolute path to resource, works for dev and for PyInstaller bundle."""
+    if hasattr(sys, '_MEIPASS'):
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
+
+RESOURCE_DIR = get_resource_path()
+
+def get_free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('127.0.0.1', 0))
+        return s.getsockname()[1]
 
 class LogAnalyzerRequestHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=WORKSPACE_DIR, **kwargs)
+        super().__init__(*args, directory=RESOURCE_DIR, **kwargs)
 
     def do_GET(self):
         parsed_url = urlparse(self.path)
         if parsed_url.path == "/api/sample":
-            sample_file = os.path.join(WORKSPACE_DIR, "sample.log")
+            sample_file = os.path.join(RESOURCE_DIR, "sample.log")
             if os.path.exists(sample_file):
                 parsed = parse_log_file(sample_file)
                 analysis = analyze_log_entries(parsed)
                 self.send_json_response(analysis)
             else:
-                self.send_json_response({"error": "sample.log not found"}, status=404)
+                self.send_json_response({"error": "sample.log nicht gefunden"}, status=404)
             return
         
-        # Serve static files as default
         return super().do_GET()
 
     def do_POST(self):
@@ -53,25 +67,34 @@ class LogAnalyzerRequestHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-def main():
-    server_address = ('', PORT)
-    httpd = HTTPServer(server_address, LogAnalyzerRequestHandler)
-    url = f"http://localhost:{PORT}"
-    print(f"==================================================")
-    print(f"   PyLogAnalyzer GUI Server running on:")
-    print(f"   {url}")
-    print(f"==================================================")
-    
-    # Automatically open browser
-    try:
-        webbrowser.open(url)
-    except Exception:
+    def log_message(self, format, *args):
+        # Silence console HTTP logging in desktop mode
         pass
 
-    try:
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        print("\nServer shutting down.")
+def start_server(port):
+    server_address = ('127.0.0.1', port)
+    httpd = HTTPServer(server_address, LogAnalyzerRequestHandler)
+    httpd.serve_forever()
+
+def main():
+    port = get_free_port()
+    
+    # Start HTTP server thread in background
+    server_thread = threading.Thread(target=start_server, args=(port,), daemon=True)
+    server_thread.start()
+
+    app_url = f"http://127.0.0.1:{port}"
+    
+    # Create native desktop window using pywebview
+    window = webview.create_window(
+        title='PyLogAnalyzer — Master-Detail Log Inspector',
+        url=app_url,
+        width=1350,
+        height=850,
+        min_size=(900, 600)
+    )
+    
+    webview.start()
 
 if __name__ == "__main__":
     main()
