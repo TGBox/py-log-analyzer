@@ -1,7 +1,7 @@
 import unittest
 import os
 from parser import parse_log_file
-from analyzer import analyze_log_entries
+from analyzer import analyze_log_entries, parse_external_entity_data
 
 class TestLogAnalyzer(unittest.TestCase):
     def setUp(self):
@@ -14,11 +14,17 @@ class TestLogAnalyzer(unittest.TestCase):
         analysis = analyze_log_entries(entries)
         timeline = analysis["timeline"]
         entity_index = analysis["entity_index"]
+        entity_names = analysis["entity_names"]
         
         self.assertGreater(len(timeline), 0)
         self.assertGreater(len(entity_index), 0)
 
-        # Check for nested JSON unpacking in line 142 (update rezepte)
+        # 1. Check entity name resolution for 6KCRE-MRANHX
+        self.assertIn("6KCRE-MRANHX", entity_names)
+        self.assertIn("Wintzen", entity_names["6KCRE-MRANHX"])
+        print(f"Resolved entity name: 6KCRE-MRANHX -> {entity_names['6KCRE-MRANHX']}")
+
+        # 2. Check for nested JSON unpacking in line 142 (update rezepte)
         rezepte_entry = None
         for entry in entries:
             if entry.get("table") == "rezepte" and isinstance(entry.get("payload"), dict):
@@ -29,7 +35,7 @@ class TestLogAnalyzer(unittest.TestCase):
         
         self.assertIsNotNone(rezepte_entry, "Nested JSON in 'rezepte.rechnung' should be auto-decoded to dict")
 
-        # Check anomaly detection
+        # 3. Check anomaly detection
         has_float_anomaly = False
         has_null_param = False
         for entry in analysis["all_entries"]:
@@ -41,8 +47,16 @@ class TestLogAnalyzer(unittest.TestCase):
         
         print(f"Sample analysis complete. Clustered Timeline items: {len(timeline)} (from {len(entries)} raw).")
         print(f"Entities indexed: {len(entity_index)} unique IDs.")
-        print(f"Float precision anomalies found: {has_float_anomaly}")
-        print(f"Null SQL params found: {has_null_param}")
+        print(f"Entity names mapped: {len(entity_names)} resolved names.")
+
+    def test_external_entity_import(self):
+        csv_data = "id;p_vname;p_name\nTEST-ID-123;Max;Mustermann"
+        parsed_csv = parse_external_entity_data(csv_data, filename="test.csv")
+        self.assertEqual(parsed_csv.get("TEST-ID-123"), "Max Mustermann")
+
+        json_data = '{"TEST-ID-456": "Erika Mustermann"}'
+        parsed_json = parse_external_entity_data(json_data, filename="test.json")
+        self.assertEqual(parsed_json.get("TEST-ID-456"), "Erika Mustermann")
 
 if __name__ == '__main__':
     unittest.main()

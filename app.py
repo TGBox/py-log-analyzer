@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import webview
 
 from parser import parse_log_file, parse_log_line
-from analyzer import analyze_log_entries
+from analyzer import analyze_log_entries, parse_external_entity_data
 
 def get_resource_path(relative_path=""):
     """Get absolute path to resource, works for dev and for PyInstaller bundle."""
@@ -56,6 +56,14 @@ class LogAnalyzerRequestHandler(SimpleHTTPRequestHandler):
             self.send_json_response(analysis)
             return
 
+        elif parsed_url.path == "/api/import_entities":
+            content_length = int(self.headers.get('Content-Length', 0))
+            raw_body = self.rfile.read(content_length)
+            filename = self.headers.get('X-File-Name', '')
+            entity_map = parse_external_entity_data(raw_body, filename=filename)
+            self.send_json_response({"entity_names": entity_map, "count": len(entity_map)})
+            return
+
         self.send_error(404, "Not Found")
 
     def send_json_response(self, data, status=200):
@@ -68,7 +76,6 @@ class LogAnalyzerRequestHandler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, format, *args):
-        # Silence console HTTP logging in desktop mode
         pass
 
 def start_server(port):
@@ -79,13 +86,11 @@ def start_server(port):
 def main():
     port = get_free_port()
     
-    # Start HTTP server thread in background
     server_thread = threading.Thread(target=start_server, args=(port,), daemon=True)
     server_thread.start()
 
     app_url = f"http://127.0.0.1:{port}"
     
-    # Create native desktop window using pywebview
     window = webview.create_window(
         title='PyLogAnalyzer — Master-Detail Log Inspector',
         url=app_url,

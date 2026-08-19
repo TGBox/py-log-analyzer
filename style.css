@@ -645,8 +645,20 @@ body {
 .tracer-item-header {
     display: flex;
     justify-content: space-between;
+    align-items: center;
     margin-bottom: 4px;
     font-size: 11px;
+}
+
+.tree-entity-name, .tracer-entity-name {
+    color: var(--primary-blue);
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid var(--border-active);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    margin-left: 6px;
 }
 
 /* Raw View */

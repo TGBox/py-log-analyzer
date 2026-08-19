@@ -41,7 +41,6 @@ def extract_patient_name(data):
     if "patient" in data:
         pat = data["patient"]
         if isinstance(pat, str):
-            # Often formatted as "Schneider Bryan \nSperberweg 6 B ..."
             lines = pat.split('\n')
             return lines[0].strip() if lines else pat.strip()
         elif isinstance(pat, dict):
@@ -49,15 +48,21 @@ def extract_patient_name(data):
 
     return None
 
-def get_business_description(entry):
+def get_business_description(entry, entity_names=None):
     action = entry.get("action")
     table = entry.get("table")
     payload = entry.get("payload") or {}
+    entity_names = entity_names or {}
     
     if not isinstance(payload, dict):
         return f"{action.upper()} {table}" if table else action.upper()
 
+    # Try direct name first, then fallback to lookup in entity_names
     patient_name = extract_patient_name(payload)
+    if not patient_name:
+        pat_id = payload.get("patient_id") or payload.get("patienten_id") or payload.get("refid") or payload.get("id")
+        if pat_id and pat_id in entity_names:
+            patient_name = entity_names[pat_id]
 
     # 1. EVENTS
     if table == "events":
@@ -92,7 +97,11 @@ def get_business_description(entry):
             return f"Rechnung ({referenz}) angelegt"
         elif action == "update":
             if rechnungnr and rechnungnr != payload.get("id", "")[:8]:
+                if patient_name:
+                    return f"Rechnung #{rechnungnr} ({referenz}) für {patient_name} aktualisiert"
                 return f"Rechnung #{rechnungnr} ({referenz}) aktualisiert"
+            if patient_name:
+                return f"Rechnung ({referenz}) für {patient_name} aktualisiert"
             return f"Rechnung ({referenz}) aktualisiert"
 
     # 3. RECHPOS (Rechnungsposition)
@@ -106,7 +115,7 @@ def get_business_description(entry):
 
     # 4. PATIENTEN
     elif table == "patienten":
-        name = extract_patient_name(payload) or payload.get("id", "")[:8]
+        name = patient_name or payload.get("id", "")[:8]
         if action == "update":
             if "p_zuzahlungsbefreit_bis" in payload:
                 bis = format_german_date(payload.get("p_zuzahlungsbefreit_bis"))
@@ -122,9 +131,10 @@ def get_business_description(entry):
         rezeptnr = payload.get("rezeptnr") or payload.get("id", "")[:8]
         diag = payload.get("diagnosegruppe", "")
         diag_str = f" ({diag})" if diag else ""
+        pat_addon = f" für {patient_name}" if patient_name else ""
         if action == "insert":
-            return f"Rezept #{rezeptnr}{diag_str} angelegt"
-        return f"Rezept #{rezeptnr}{diag_str} aktualisiert"
+            return f"Rezept #{rezeptnr}{diag_str}{pat_addon} angelegt"
+        return f"Rezept #{rezeptnr}{diag_str}{pat_addon} aktualisiert"
 
     elif table == "rezepte_events":
         if action == "insert":
@@ -136,7 +146,8 @@ def get_business_description(entry):
         stichwort = payload.get("stichwort", "Notiz")
         text = payload.get("text", "")
         snippet = f": {text[:40]}..." if len(text) > 40 else (f": {text}" if text else "")
-        return f"Historie-Eintrag '{stichwort}'{snippet}"
+        pat_addon = f" für Patient {patient_name}" if patient_name else ""
+        return f"Historie-Eintrag '{stichwort}'{pat_addon}{snippet}"
 
     # 7. SETTINGS
     elif table == "settings":
@@ -146,8 +157,14 @@ def get_business_description(entry):
     # 8. SQL EXEC / DELETE
     elif action in ("encexec", "encdelete"):
         sql = payload.get("sql", "").strip() if isinstance(payload, dict) else str(payload)
+        params = payload.get("params", {}) if isinstance(payload, dict) else {}
+        target = params.get("id") or params.get("rechnungid") or params.get("group_id")
+        target_name = entity_names.get(target) if target else None
+
         first_word = sql.split()[0].upper() if sql else "SQL"
         if "events set abgerechnet=true" in sql:
+            if target_name:
+                return f"SQL: Termin für {target_name} als abgerechnet markiert"
             return "SQL: Termin als abgerechnet markiert"
         elif "Delete from events" in sql:
             return "SQL: Termin(e) aus Kalender gelöscht"

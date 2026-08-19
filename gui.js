@@ -14,6 +14,10 @@ function initEvents() {
     // Buttons
     document.getElementById('btn-load-sample').addEventListener('click', loadSampleLog);
     document.getElementById('file-input').addEventListener('change', handleFileSelect);
+    const entitiesInput = document.getElementById('entities-input');
+    if (entitiesInput) {
+        entitiesInput.addEventListener('change', handleEntitiesImport);
+    }
     
     // Search
     const searchInput = document.getElementById('search-input');
@@ -191,6 +195,43 @@ function handleFileSelect(e) {
     reader.readAsText(file);
 }
 
+function handleEntitiesImport(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+        const body = evt.target.result;
+        fetch('/api/import_entities', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/octet-stream',
+                'X-File-Name': file.name
+            },
+            body: body
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.entity_names) {
+                if (!logData) logData = {};
+                if (!logData.entity_names) logData.entity_names = {};
+                Object.assign(logData.entity_names, data.entity_names);
+                
+                alert(`${data.count || Object.keys(data.entity_names).length} Entitäts-Namen erfolgreich importiert!`);
+                renderTimeline();
+                if (activeEntry) selectEntry(activeEntry);
+            }
+        })
+        .catch(err => console.error("Error importing entity data:", err));
+    };
+
+    if (file.name.endsWith('.db') || file.name.endsWith('.sqlite') || file.name.endsWith('.sqlite3')) {
+        reader.readAsArrayBuffer(file);
+    } else {
+        reader.readAsText(file);
+    }
+}
+
 function updateStats() {
     if (!logData) return;
     document.getElementById('stat-total').textContent = logData.total_count || 0;
@@ -364,7 +405,9 @@ function createTreeNode(key, val, isExpanded = true) {
     } else if (typeof val === 'number') {
         node.innerHTML = `<span class="tree-key">${key}:</span> <span class="tree-number">${val}</span>`;
     } else if (typeof val === 'string') {
-        node.innerHTML = `<span class="tree-key">${key}:</span> <span class="tree-string">"${escapeHtml(formatDateString(val))}"</span>`;
+        const resolvedName = (logData && logData.entity_names) ? logData.entity_names[val] : null;
+        const nameTag = resolvedName ? ` <span class="tree-entity-name">👤 (${escapeHtml(resolvedName)})</span>` : '';
+        node.innerHTML = `<span class="tree-key">${key}:</span> <span class="tree-string">"${escapeHtml(formatDateString(val))}"</span>${nameTag}`;
     } else if (typeof val === 'object') {
         const isArray = Array.isArray(val);
         const keys = Object.keys(val);
@@ -472,19 +515,22 @@ function renderTracer(entry) {
 
     entities.forEach(eid => {
         const occurrences = (logData.entity_index[eid] || []).length;
+        const name = (logData && logData.entity_names) ? logData.entity_names[eid] : null;
+        const nameTag = name ? `<span class="tracer-entity-name">👤 ${escapeHtml(name)}</span>` : '';
+
         const item = document.createElement('div');
         item.className = 'tracer-item';
         item.innerHTML = `
             <div class="tracer-item-header">
-                <strong>ID: ${eid}</strong>
+                <div><strong>ID: ${eid}</strong> ${nameTag}</div>
                 <span class="badge badge-sql">${occurrences} Log-Einträge</span>
             </div>
-            <p style="font-size:11px; color:#9ca3af;">Klicken, um die gesamte Master-Timeline auf diese ID zu filtern.</p>
+            <p style="font-size:11px; color:var(--text-secondary);">Klicken, um die gesamte Master-Timeline auf diese ID zu filtern.</p>
         `;
 
         item.addEventListener('click', () => {
             activeEntityFilter = eid;
-            document.getElementById('entity-active-id').textContent = eid;
+            document.getElementById('entity-active-id').textContent = name ? `${name} (${eid})` : eid;
             document.getElementById('entity-active-badge').style.display = 'flex';
             renderTimeline();
         });
