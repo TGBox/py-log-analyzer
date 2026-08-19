@@ -6,6 +6,7 @@ let collapseNoise = true;
 
 document.addEventListener('DOMContentLoaded', () => {
     initEvents();
+    initThemeToggle();
     loadSampleLog();
 });
 
@@ -77,28 +78,76 @@ function initEvents() {
     initResizer();
 }
 
+function initThemeToggle() {
+    const themeBtn = document.getElementById('btn-theme-toggle');
+    const sunIcon = document.getElementById('theme-icon-sun');
+    const moonIcon = document.getElementById('theme-icon-moon');
+    const themeLabel = document.getElementById('theme-label');
+
+    if (!themeBtn) return;
+
+    const savedTheme = localStorage.getItem('pylog_theme') || 'dark';
+    setTheme(savedTheme);
+
+    themeBtn.addEventListener('click', () => {
+        const currentTheme = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+        const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+        setTheme(newTheme);
+    });
+
+    function setTheme(theme) {
+        if (theme === 'light') {
+            document.documentElement.setAttribute('data-theme', 'light');
+            if (sunIcon) sunIcon.style.display = 'none';
+            if (moonIcon) moonIcon.style.display = 'inline';
+            if (themeLabel) themeLabel.textContent = 'Darkmode';
+            localStorage.setItem('pylog_theme', 'light');
+        } else {
+            document.documentElement.removeAttribute('data-theme');
+            if (sunIcon) sunIcon.style.display = 'inline';
+            if (moonIcon) moonIcon.style.display = 'none';
+            if (themeLabel) themeLabel.textContent = 'Lightmode';
+            localStorage.setItem('pylog_theme', 'dark');
+        }
+    }
+}
+
 function initResizer() {
     const resizer = document.getElementById('resizer');
     const masterPanel = document.querySelector('.master-panel');
+    const detailPanel = document.querySelector('.detail-panel');
+    const container = document.querySelector('.main-split-container');
     let isResizing = false;
+
+    if (!resizer || !masterPanel || !container) return;
 
     resizer.addEventListener('mousedown', (e) => {
         isResizing = true;
+        resizer.classList.add('resizing');
         document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
     });
 
     document.addEventListener('mousemove', (e) => {
         if (!isResizing) return;
-        const containerWidth = document.querySelector('.main-split-container').clientWidth;
-        const newMasterWidth = (e.clientX / containerWidth) * 100;
-        if (newMasterWidth > 20 && newMasterWidth < 80) {
-            masterPanel.style.flex = `${newMasterWidth}`;
-        }
+        const containerRect = container.getBoundingClientRect();
+        const mouseX = e.clientX - containerRect.left;
+        let percentage = (mouseX / containerRect.width) * 100;
+        
+        if (percentage < 15) percentage = 15;
+        if (percentage > 85) percentage = 85;
+
+        masterPanel.style.flex = `0 0 ${percentage}%`;
+        if (detailPanel) detailPanel.style.flex = `1 1 0%`;
     });
 
     document.addEventListener('mouseup', () => {
-        isResizing = false;
-        document.body.style.cursor = 'default';
+        if (isResizing) {
+            isResizing = false;
+            resizer.classList.remove('resizing');
+            document.body.style.cursor = 'default';
+            document.body.style.userSelect = 'auto';
+        }
     });
 }
 
