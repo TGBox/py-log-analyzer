@@ -268,6 +268,12 @@ def parse_external_entity_data(content, filename=""):
 
 def analyze_log_entries(parsed_entries, external_entity_map=None):
     """Enrich log entries using 2-pass indexing for entity name resolution."""
+    # Sort chronologically across all loaded files
+    parsed_entries = sorted(parsed_entries, key=lambda x: x.get("timestamp") or "")
+
+    # Extract unique loaded file names
+    loaded_files = sorted(list(set(e.get("file_name") for e in parsed_entries if e.get("file_name"))))
+
     # Pass 1: Build global ID -> Name dictionary from log entries
     entity_names = {}
     if external_entity_map and isinstance(external_entity_map, dict):
@@ -371,5 +377,6 @@ def analyze_log_entries(parsed_entries, external_entity_map=None):
         "entity_index": entity_index,
         "entity_names": entity_names,
         "entity_labels": entity_labels,
+        "loaded_files": loaded_files,
         "total_count": len(parsed_entries)
     }

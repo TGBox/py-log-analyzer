@@ -674,6 +674,21 @@ body {
     letter-spacing: 0.4px;
 }
 
+.badge-file {
+    background: rgba(148, 163, 184, 0.12);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+}
+
 /* SQL Console Tab Styles */
 .sql-console-wrapper {
     display: flex;

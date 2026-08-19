@@ -54,11 +54,18 @@ class LogAnalyzerRequestHandler(SimpleHTTPRequestHandler):
         parsed_url = urlparse(self.path)
         if parsed_url.path == "/api/parse":
             content_length = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(content_length).decode('utf-8', errors='ignore')
-            
-            lines = body.splitlines()
-            parsed = [parse_log_line(line, i+1) for i, line in enumerate(lines) if line.strip()]
-            parsed = [p for p in parsed if p is not None]
+            raw_body = self.rfile.read(content_length)
+            filename = self.headers.get('X-File-Name', '')
+
+            if raw_body.startswith(b"{") and b'"entries"' in raw_body:
+                try:
+                    payload_data = json.loads(raw_body.decode('utf-8'))
+                    parsed = payload_data.get("entries", [])
+                except Exception:
+                    parsed = parse_log_content(raw_body, file_name=filename)
+            else:
+                parsed = parse_log_content(raw_body, file_name=filename)
+
             analysis = analyze_log_entries(parsed)
             sql_engine.load_data(analysis["all_entries"], analysis["entity_names"])
             self.send_json_response(analysis)

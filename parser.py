@@ -1,5 +1,8 @@
 import re
 import json
+import os
+import io
+import zipfile
 
 LOG_LINE_PATTERN = re.compile(r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+([A-Z0-9\-]+)\s+([a-z]+)\s*(.*)$")
 
@@ -20,7 +23,7 @@ def try_unpack_json(val):
         return [try_unpack_json(item) for item in val]
     return val
 
-def parse_log_line(line, line_number=0):
+def parse_log_line(line, line_number=0, file_name=""):
     line = line.strip()
     if not line:
         return None
@@ -29,6 +32,7 @@ def parse_log_line(line, line_number=0):
     if not m:
         return {
             "line_number": line_number,
+            "file_name": file_name,
             "raw": line,
             "error": "Failed to parse log format"
         }
@@ -66,6 +70,7 @@ def parse_log_line(line, line_number=0):
 
     return {
         "line_number": line_number,
+        "file_name": file_name,
         "timestamp": timestamp,
         "user": user,
         "action": action,
@@ -75,11 +80,48 @@ def parse_log_line(line, line_number=0):
         "raw": line
     }
 
-def parse_log_file(file_path):
+def parse_log_file(file_path, file_name=""):
+    fname = file_name or os.path.basename(file_path)
     entries = []
     with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
         for i, line in enumerate(f, 1):
-            parsed = parse_log_line(line, line_number=i)
+            parsed = parse_log_line(line, line_number=i, file_name=fname)
             if parsed:
                 entries.append(parsed)
+    return entries
+
+def parse_log_content(content, file_name=""):
+    """Parse text string or bytes (ZIP archive or raw log text) into log entries."""
+    fname = file_name or "uploaded.log"
+    ext = os.path.splitext(fname)[1].lower() if fname else ""
+    entries = []
+
+    # Check for ZIP archive
+    is_zip = ext == ".zip" or (isinstance(content, bytes) and content.startswith(b"PK\x03\x04"))
+    if is_zip:
+        try:
+            zip_bytes = io.BytesIO(content) if isinstance(content, bytes) else content
+            with zipfile.ZipFile(zip_bytes, 'r') as zf:
+                for member_name in zf.namelist():
+                    if member_name.endswith('/') or member_name.startswith('__MACOSX'):
+                        continue
+                    m_ext = os.path.splitext(member_name)[1].lower()
+                    if m_ext in ('.log', '.txt', '.json'):
+                        file_text = zf.read(member_name).decode('utf-8', errors='ignore')
+                        lines = file_text.splitlines()
+                        for i, line in enumerate(lines, 1):
+                            parsed = parse_log_line(line, line_number=i, file_name=os.path.basename(member_name))
+                            if parsed:
+                                entries.append(parsed)
+        except Exception as e:
+            print(f"Error reading ZIP log archive: {e}")
+        return entries
+
+    text = content if isinstance(content, str) else content.decode('utf-8', errors='ignore')
+    lines = text.splitlines()
+    for i, line in enumerate(lines, 1):
+        parsed = parse_log_line(line, line_number=i, file_name=fname)
+        if parsed:
+            entries.append(parsed)
+
     return entries

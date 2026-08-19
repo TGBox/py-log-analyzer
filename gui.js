@@ -2,6 +2,7 @@ let logData = null;
 let activeEntry = null;
 let activeFilter = 'all';
 let activeEntityFilter = null;
+let activeFileFilter = '';
 let collapseNoise = true;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -20,6 +21,15 @@ function initEvents() {
         entitiesInput.addEventListener('change', handleEntitiesImport);
     }
     
+    // File Filter Dropdown
+    const fileFilterSelect = document.getElementById('file-filter-select');
+    if (fileFilterSelect) {
+        fileFilterSelect.addEventListener('change', (e) => {
+            activeFileFilter = e.target.value;
+            renderTimeline();
+        });
+    }
+
     // Search
     const searchInput = document.getElementById('search-input');
     const btnClearSearch = document.getElementById('btn-clear-search');
@@ -82,21 +92,62 @@ function initEvents() {
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             
             btn.classList.add('active');
-            const tabName = btn.dataset.tab;
-            document.getElementById(`tab-${tabName}`).classList.add('active');
+            const targetId = `tab-${btn.dataset.tab}`;
+            const targetEl = document.getElementById(targetId);
+            if (targetEl) targetEl.classList.add('active');
+
+            if (btn.dataset.tab === 'sql') {
+                const queryInput = document.getElementById('sql-query-input');
+                if (queryInput && !queryInput.value.trim()) {
+                    queryInput.value = 'SELECT * FROM logs LIMIT 50;';
+                    runSQLQuery();
+                }
+            }
         });
     });
 
-    // Copy Raw
-    document.getElementById('btn-copy-raw').addEventListener('click', () => {
-        if (activeEntry && activeEntry.raw) {
-            navigator.clipboard.writeText(activeEntry.raw);
-            alert("Rohdaten in Zwischenablage kopiert!");
+    // Resizer Dragging
+    const resizer = document.getElementById('resizer');
+    const masterPanel = document.querySelector('.master-panel');
+    const detailPanel = document.querySelector('.detail-panel');
+    let isDragging = false;
+
+    if (!resizer || !masterPanel || !detailPanel) return;
+
+    resizer.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        resizer.classList.add('dragging');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const container = document.querySelector('.main-split-container');
+        if (!container) return;
+        const containerWidth = container.clientWidth;
+        const pointerX = e.clientX;
+        const minWidth = 350;
+        
+        let newMasterWidth = pointerX - 16;
+        let newDetailWidth = containerWidth - newMasterWidth - 8;
+
+        if (newMasterWidth >= minWidth && newDetailWidth >= minWidth) {
+            const masterPercent = (newMasterWidth / containerWidth) * 100;
+            const detailPercent = (newDetailWidth / containerWidth) * 100;
+            masterPanel.style.flex = `0 0 ${masterPercent}%`;
+            detailPanel.style.flex = `0 0 ${detailPercent}%`;
         }
     });
 
-    // Resizer Split-Screen
-    initResizer();
+    document.addEventListener('mouseup', () => {
+        if (isDragging) {
+            isDragging = false;
+            resizer.classList.remove('dragging');
+            document.body.style.cursor = 'default';
+            document.body.style.userSelect = 'auto';
+        }
+    });
 }
 
 function initThemeToggle() {
@@ -133,45 +184,6 @@ function initThemeToggle() {
     }
 }
 
-function initResizer() {
-    const resizer = document.getElementById('resizer');
-    const masterPanel = document.querySelector('.master-panel');
-    const detailPanel = document.querySelector('.detail-panel');
-    const container = document.querySelector('.main-split-container');
-    let isResizing = false;
-
-    if (!resizer || !masterPanel || !container) return;
-
-    resizer.addEventListener('mousedown', (e) => {
-        isResizing = true;
-        resizer.classList.add('resizing');
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
-    });
-
-    document.addEventListener('mousemove', (e) => {
-        if (!isResizing) return;
-        const containerRect = container.getBoundingClientRect();
-        const mouseX = e.clientX - containerRect.left;
-        let percentage = (mouseX / containerRect.width) * 100;
-        
-        if (percentage < 15) percentage = 15;
-        if (percentage > 85) percentage = 85;
-
-        masterPanel.style.flex = `0 0 ${percentage}%`;
-        if (detailPanel) detailPanel.style.flex = `1 1 0%`;
-    });
-
-    document.addEventListener('mouseup', () => {
-        if (isResizing) {
-            isResizing = false;
-            resizer.classList.remove('resizing');
-            document.body.style.cursor = 'default';
-            document.body.style.userSelect = 'auto';
-        }
-    });
-}
-
 function loadSampleLog() {
     fetch('/api/sample')
         .then(res => res.json())
@@ -183,7 +195,9 @@ function loadSampleLog() {
             logData = data;
             activeEntry = null;
             activeEntityFilter = null;
+            activeFileFilter = '';
             document.getElementById('entity-active-badge').style.display = 'none';
+            updateFileFilterDropdown();
             updateStats();
             renderTimeline();
         })
@@ -193,29 +207,85 @@ function loadSampleLog() {
 }
 
 function handleFileSelect(e) {
-    const file = e.target.files[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
 
-    const reader = new FileReader();
-    reader.onload = function(evt) {
-        const text = evt.target.result;
+    let allParsedEntries = [];
+    let promises = files.map(file => {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                const body = evt.target.result;
+                fetch('/api/parse', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/octet-stream',
+                        'X-File-Name': file.name
+                    },
+                    body: body
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.all_entries) {
+                        allParsedEntries = allParsedEntries.concat(data.all_entries);
+                    }
+                    resolve();
+                })
+                .catch(err => {
+                    console.error(`Error parsing file ${file.name}:`, err);
+                    resolve();
+                });
+            };
+            if (file.name.endsWith('.zip')) {
+                reader.readAsArrayBuffer(file);
+            } else {
+                reader.readAsText(file);
+            }
+        });
+    });
+
+    Promise.all(promises).then(() => {
         fetch('/api/parse', {
             method: 'POST',
-            headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-            body: text
+            headers: {
+                'Content-Type': 'application/json',
+                'X-File-Name': files.length === 1 ? files[0].name : 'multi_logs.log'
+            },
+            body: JSON.stringify({ entries: allParsedEntries })
         })
         .then(res => res.json())
         .then(data => {
             logData = data;
             activeEntry = null;
             activeEntityFilter = null;
+            activeFileFilter = '';
             document.getElementById('entity-active-badge').style.display = 'none';
+            updateFileFilterDropdown();
             updateStats();
             renderTimeline();
         })
-        .catch(err => console.error("Error parsing file:", err));
-    };
-    reader.readAsText(file);
+        .catch(err => console.error("Error parsing combined files:", err));
+    });
+}
+
+function updateFileFilterDropdown() {
+    const select = document.getElementById('file-filter-select');
+    if (!select) return;
+
+    select.innerHTML = '<option value="">Alle Logdateien</option>';
+    const files = (logData && logData.loaded_files) ? logData.loaded_files : [];
+    if (files.length > 1) {
+        files.forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f;
+            opt.textContent = f;
+            if (f === activeFileFilter) opt.selected = true;
+            select.appendChild(opt);
+        });
+        select.style.display = 'inline-block';
+    } else {
+        select.style.display = 'none';
+    }
 }
 
 function handleEntitiesImport(e) {
@@ -282,6 +352,10 @@ function updateStats() {
     document.getElementById('stat-total').textContent = logData.total_count || 0;
     document.getElementById('stat-entities').textContent = Object.keys(logData.entity_index || {}).length;
     
+    const fileCount = (logData.loaded_files || []).length || (logData.all_entries ? 1 : 0);
+    const statFiles = document.getElementById('stat-files');
+    if (statFiles) statFiles.textContent = fileCount;
+
     let anomalyCount = 0;
     (logData.all_entries || []).forEach(e => {
         anomalyCount += (e.anomalies || []).length;
@@ -326,7 +400,7 @@ function renderTimeline() {
     tbody.innerHTML = '';
 
     if (!logData) {
-        tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Keine Daten geladen.</td></tr>';
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="8">Keine Daten geladen.</td></tr>';
         resetInspector();
         return;
     }
@@ -340,6 +414,10 @@ function renderTimeline() {
         if (activeFilter === 'delete' && !(entry.action === 'encdelete' || (entry.anomalies || []).some(a => a.type === 'deletion'))) return false;
         if (activeFilter === 'anomaly' && (!entry.anomalies || entry.anomalies.length === 0)) return false;
 
+        if (activeFileFilter && entry.file_name && entry.file_name !== activeFileFilter) {
+            return false;
+        }
+
         if (activeEntityFilter) {
             const hasEntity = (entry.entities || []).includes(activeEntityFilter);
             if (!hasEntity) return false;
@@ -350,14 +428,15 @@ function renderTimeline() {
             const descText = (entry.description || '').toLowerCase();
             const userText = (entry.user || '').toLowerCase();
             const tableText = (entry.table || '').toLowerCase();
-            return rawText.includes(searchQuery) || descText.includes(searchQuery) || userText.includes(searchQuery) || tableText.includes(searchQuery);
+            const fileText = (entry.file_name || '').toLowerCase();
+            return rawText.includes(searchQuery) || descText.includes(searchQuery) || userText.includes(searchQuery) || tableText.includes(searchQuery) || fileText.includes(searchQuery);
         }
 
         return true;
     });
 
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Keine Treffer für die aktuellen Filter.</td></tr>';
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="8">Keine Treffer für die aktuellen Filter.</td></tr>';
         resetInspector();
         return;
     }
@@ -378,8 +457,11 @@ function renderTimeline() {
             anomalyBadgeHtml = `<span class="badge-anomaly" title="${entry.anomalies[0].message}">⚠️ ${entry.anomalies[0].title}</span>`;
         }
 
+        const fileNameDisplay = entry.file_name || 'sample.log';
+
         tr.innerHTML = `
             <td class="mono">${entry.line_number}</td>
+            <td class="mono"><span class="badge-file" title="${escapeHtml(fileNameDisplay)}">📁 ${escapeHtml(fileNameDisplay)}</span></td>
             <td class="mono">${formatDateString(entry.timestamp) || ''}</td>
             <td class="mono">${entry.user || ''}</td>
             <td><span class="badge ${badgeClass}">${entry.action}</span></td>

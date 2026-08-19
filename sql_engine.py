@@ -14,6 +14,7 @@ class SQLEngine:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS logs (
                 line_number INTEGER,
+                file_name TEXT,
                 timestamp TEXT,
                 user TEXT,
                 action TEXT,
@@ -43,6 +44,7 @@ class SQLEngine:
         for entry in parsed_entries:
             log_rows.append((
                 entry.get("line_number"),
+                entry.get("file_name"),
                 entry.get("timestamp"),
                 entry.get("user"),
                 entry.get("action"),
@@ -53,8 +55,8 @@ class SQLEngine:
             ))
 
         cursor.executemany("""
-            INSERT INTO logs (line_number, timestamp, user, action, table_name, target_id, description, raw)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            INSERT INTO logs (line_number, file_name, timestamp, user, action, table_name, target_id, description, raw)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
         """, log_rows)
 
         # 3. Dynamically build tables for entities (e.g. patienten, events, rezepte, rechnung, rechpos)
