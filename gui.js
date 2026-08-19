@@ -164,6 +164,9 @@ function loadSampleLog() {
                 return;
             }
             logData = data;
+            activeEntry = null;
+            activeEntityFilter = null;
+            document.getElementById('entity-active-badge').style.display = 'none';
             updateStats();
             renderTimeline();
         })
@@ -187,6 +190,9 @@ function handleFileSelect(e) {
         .then(res => res.json())
         .then(data => {
             logData = data;
+            activeEntry = null;
+            activeEntityFilter = null;
+            document.getElementById('entity-active-badge').style.display = 'none';
             updateStats();
             renderTimeline();
         })
@@ -261,26 +267,33 @@ function updateStats() {
 function formatDateString(val) {
     if (typeof val !== 'string' || !val) return val;
 
-    // ISO datetime with seconds: 2026-08-18 07:09:17 or 2026-08-18T07:09:17...
     const dtMatch = val.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/);
     if (dtMatch) {
         return `${dtMatch[3]}.${dtMatch[2]}.${dtMatch[1]} ${dtMatch[4]}`;
     }
 
-    // ISO datetime with minutes: 2026-08-18T07:09+02:00
     const dtMinMatch = val.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}:\d{2})(?:Z|[+-]\d{2}:\d{2})?$/);
     if (dtMinMatch) {
         return `${dtMinMatch[3]}.${dtMinMatch[2]}.${dtMinMatch[1]} ${dtMinMatch[4]}`;
     }
 
-    // ISO date only: 2026-08-18
     const dateMatch = val.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (dateMatch) {
         return `${dateMatch[3]}.${dateMatch[2]}.${dateMatch[1]}`;
     }
 
-    // Replace embedded YYYY-MM-DD dates inside text string
     return val.replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, (m, y, mo, d) => `${d}.${mo}.${y}`);
+}
+
+function resetInspector() {
+    activeEntry = null;
+    document.getElementById('inspector-line-num').textContent = 'Zeile ---';
+    document.getElementById('inspector-title').textContent = 'Keine Zeile ausgewählt';
+    document.getElementById('inspector-badges').innerHTML = '';
+    document.getElementById('tree-container').innerHTML = '<div class="empty-state">Wählen Sie einen Log-Eintrag aus der linken Liste.</div>';
+    document.getElementById('diff-container').innerHTML = '<div class="empty-state">Wählen Sie einen Update-Eintrag mit vorherigen Änderungen.</div>';
+    document.getElementById('tracer-container').innerHTML = '<div class="empty-state">Keine verknüpften Entitäten in diesem Eintrag.</div>';
+    document.getElementById('raw-container').textContent = '';
 }
 
 function renderTimeline() {
@@ -289,6 +302,7 @@ function renderTimeline() {
 
     if (!logData) {
         tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Keine Daten geladen.</td></tr>';
+        resetInspector();
         return;
     }
 
@@ -296,19 +310,16 @@ function renderTimeline() {
     const listToRender = collapseNoise ? logData.timeline : logData.all_entries;
 
     let filtered = listToRender.filter(entry => {
-        // Quick filter chip
         if (activeFilter === 'insert' && entry.action !== 'insert') return false;
         if (activeFilter === 'update' && entry.action !== 'update') return false;
         if (activeFilter === 'delete' && !(entry.action === 'encdelete' || (entry.anomalies || []).some(a => a.type === 'deletion'))) return false;
         if (activeFilter === 'anomaly' && (!entry.anomalies || entry.anomalies.length === 0)) return false;
 
-        // Entity filter
         if (activeEntityFilter) {
             const hasEntity = (entry.entities || []).includes(activeEntityFilter);
             if (!hasEntity) return false;
         }
 
-        // Search text
         if (searchQuery) {
             const rawText = (entry.raw || '').toLowerCase();
             const descText = (entry.description || '').toLowerCase();
@@ -322,6 +333,7 @@ function renderTimeline() {
 
     if (filtered.length === 0) {
         tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Keine Treffer für die aktuellen Filter.</td></tr>';
+        resetInspector();
         return;
     }
 
@@ -360,8 +372,9 @@ function renderTimeline() {
         tbody.appendChild(tr);
     });
 
-    // Auto-select first row if none active
-    if (!activeEntry && filtered.length > 0) {
+    // Auto-select active row or first visible row in filtered list
+    const isCurrentActiveVisible = filtered.some(e => e.line_number === activeEntry?.line_number);
+    if (!isCurrentActiveVisible && filtered.length > 0) {
         selectEntry(filtered[0]);
         const firstTr = tbody.querySelector('tr');
         if (firstTr) firstTr.classList.add('active-row');
