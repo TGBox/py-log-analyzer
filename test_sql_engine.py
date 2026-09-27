@@ -1,15 +1,20 @@
 import unittest
+from pathlib import Path
 from parser import parse_log_file
 from analyzer import analyze_log_entries
 from sql_engine import SQLEngine
 
 class TestSQLEngine(unittest.TestCase):
     def setUp(self):
-        self.sample_path = r"c:\Users\droesch\Documents\Programmiertes\py-log-analyzer\sample.log"
+        self.sample_path = str(Path(__file__).parent / "sample.log")
         self.parsed = parse_log_file(self.sample_path)
         self.analysis = analyze_log_entries(self.parsed)
         self.engine = SQLEngine()
         self.engine.load_data(self.analysis["all_entries"], self.analysis["entity_names"])
+
+    def tearDown(self):
+        if hasattr(self, "engine") and self.engine.conn:
+            self.engine.conn.close()
 
     def test_schema_and_tables(self):
         schema = self.engine.get_schema()

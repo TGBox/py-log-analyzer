@@ -1,11 +1,12 @@
 import unittest
 import os
+from pathlib import Path
 from parser import parse_log_file
 from analyzer import analyze_log_entries, parse_external_entity_data
 
 class TestLogAnalyzer(unittest.TestCase):
     def setUp(self):
-        self.sample_path = r"c:\Users\droesch\Documents\Programmiertes\py-log-analyzer\sample.log"
+        self.sample_path = str(Path(__file__).parent / "sample.log")
 
     def test_parse_sample_log(self):
         entries = parse_log_file(self.sample_path)

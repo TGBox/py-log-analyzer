@@ -5,13 +5,14 @@ import re
 
 class SQLEngine:
     def __init__(self):
-        self.conn = sqlite3.connect(":memory:", check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
         self._init_db()
 
     def _init_db(self):
-        cursor = self.conn.cursor()
-        cursor.execute("""
+        if hasattr(self, "conn") and self.conn:
+            self.conn.close()
+        self.conn = sqlite3.connect(":memory:", check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("""
             CREATE TABLE IF NOT EXISTS logs (
                 line_number INTEGER,
                 file_name TEXT,
@@ -28,16 +29,8 @@ class SQLEngine:
 
     def load_data(self, parsed_entries, entity_names=None):
         """Populate in-memory SQLite DB with log entries and extracted entity tables."""
-        cursor = self.conn.cursor()
-
-        # 1. Clear existing dynamic tables
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = [row[0] for row in cursor.fetchall()]
-        for tbl in tables:
-            cursor.execute(f"DROP TABLE IF EXISTS {tbl};")
-        self.conn.commit()
-
         self._init_db()
+        cursor = self.conn.cursor()
 
         # 2. Populate logs table
         log_rows = []

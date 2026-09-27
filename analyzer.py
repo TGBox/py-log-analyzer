@@ -4,6 +4,7 @@ import zipfile
 import json
 import csv
 import sqlite3
+import itertools
 from mapper import get_business_description, compute_field_diff, extract_patient_name
 
 def check_anomalies(entry):
@@ -67,32 +68,25 @@ def check_anomalies(entry):
     return anomalies
 
 
+ENTITY_KEY_LABELS = {
+    "group_id": "Group-ID", "groupid": "Group-ID",
+    "patient_id": "Patient-ID", "patienten_id": "Patient-ID",
+    "rechnung_id": "Rechnungs-ID", "rechnungid": "Rechnungs-ID", "rechnungnr": "Rechnungs-ID",
+    "events_id": "Termin-ID", "event_id": "Termin-ID", "parentevent_id": "Termin-ID",
+    "rezept_id": "Rezept-ID", "rezepte_id": "Rezept-ID",
+    "refid": "Referenz-ID", "referenz_id": "Referenz-ID",
+}
+TABLE_ID_LABELS = {
+    "patienten": "Patient-ID", "events": "Termin-ID", "rechnung": "Rechnungs-ID",
+    "rezepte": "Rezept-ID", "history": "Historie-ID",
+}
+
 def get_entity_type_label(field_key, table_name=""):
     key = field_key.lower() if field_key else ""
-    if key in ("group_id", "groupid"):
-        return "Group-ID"
-    elif key in ("patient_id", "patienten_id"):
-        return "Patient-ID"
-    elif key in ("rechnung_id", "rechnungid", "rechnungnr"):
-        return "Rechnungs-ID"
-    elif key in ("events_id", "event_id", "parentevent_id"):
-        return "Termin-ID"
-    elif key in ("rezept_id", "rezepte_id"):
-        return "Rezept-ID"
-    elif key in ("refid", "referenz_id"):
-        return "Referenz-ID"
-    elif key == "id":
-        if table_name == "patienten":
-            return "Patient-ID"
-        elif table_name == "events":
-            return "Termin-ID"
-        elif table_name == "rechnung":
-            return "Rechnungs-ID"
-        elif table_name == "rezepte":
-            return "Rezept-ID"
-        elif table_name == "history":
-            return "Historie-ID"
-        return f"{table_name.capitalize()}-ID" if table_name else "ID"
+    if key in ENTITY_KEY_LABELS:
+        return ENTITY_KEY_LABELS[key]
+    if key == "id":
+        return TABLE_ID_LABELS.get(table_name, f"{table_name.capitalize()}-ID" if table_name else "ID")
     return field_key.replace("_", "-").upper()
 
 
@@ -124,10 +118,6 @@ def extract_entity_details(entry):
         find_ids(payload)
 
     return details_map
-
-
-def extract_entity_ids(entry):
-    return list(extract_entity_details(entry).keys())
 
 
 def extract_entity_name_from_entry(entry):
@@ -189,40 +179,33 @@ def parse_external_entity_data(content, filename=""):
     is_sqlite = ext in (".db", ".sqlite", ".sqlite3") or (isinstance(content, bytes) and content.startswith(b"SQLite format 3"))
 
     if is_sqlite:
-        tmp_path = "temp_import.db"
         try:
             if isinstance(content, bytes):
-                with open(tmp_path, "wb") as f:
-                    f.write(content)
-                db_path = tmp_path
+                conn = sqlite3.connect(":memory:")
+                conn.deserialize(content)
+            elif isinstance(content, str) and os.path.exists(content):
+                conn = sqlite3.connect(content)
             else:
-                db_path = content
+                conn = None
 
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-            tables = [row[0] for row in cursor.fetchall()]
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                tables = [row[0] for row in cursor.fetchall()]
 
-            for tbl in tables:
-                try:
-                    cursor.execute(f"SELECT * FROM {tbl}")
-                    cols = [description[0].lower() for description in cursor.description]
-                    rows = cursor.fetchall()
-                    for row in rows:
-                        row_dict = dict(zip(cols, row))
-                        e_id = row_dict.get("id") or row_dict.get("user_id") or row_dict.get("userid") or row_dict.get("patient_id") or row_dict.get("p_nr")
-                        e_name = extract_patient_name(row_dict) or row_dict.get("name") or row_dict.get("username")
-                        if e_id and e_name:
-                            names[str(e_id)] = str(e_name).strip()
-                except Exception:
-                    pass
-            conn.close()
-            if os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except Exception:
-                    pass
+                for tbl in tables:
+                    try:
+                        cursor.execute(f"SELECT * FROM {tbl}")
+                        cols = [description[0].lower() for description in cursor.description]
+                        for row in cursor.fetchall():
+                            row_dict = dict(zip(cols, row))
+                            e_id = row_dict.get("id") or row_dict.get("user_id") or row_dict.get("userid") or row_dict.get("patient_id") or row_dict.get("p_nr")
+                            e_name = extract_patient_name(row_dict) or row_dict.get("name") or row_dict.get("username")
+                            if e_id and e_name:
+                                names[str(e_id)] = str(e_name).strip()
+                    except Exception:
+                        pass
+                conn.close()
         except Exception as e:
             print(f"Error parsing SQLite DB: {e}")
 
@@ -314,7 +297,6 @@ def analyze_log_entries(parsed_entries, external_entity_map=None):
         enriched["anomalies"] = anoms
         enriched["entities"] = entities
         enriched["entities_info"] = entities_info
-        enriched["is_chatter"] = False
         enriched["group_children"] = []
         
         processed.append(enriched)
@@ -342,39 +324,24 @@ def analyze_log_entries(parsed_entries, external_entity_map=None):
 
     # Pass 4: Workflow grouping & Rapid keystroke (noise) collapsing
     final_timeline = []
-    skip_indices = set()
 
-    for idx, item in enumerate(processed):
-        if idx in skip_indices:
-            continue
+    def cluster_key(item):
+        if item.get("action") in ("update", "insert") and item.get("target_id"):
+            return (item["table"], item["target_id"], item["action"])
+        return id(item)
 
-        table = item["table"]
-        action = item["action"]
-        target_id = item["target_id"]
-        
-        if action in ("update", "insert") and target_id:
-            cluster = [item]
-            j = idx + 1
-            while j < len(processed):
-                next_item = processed[j]
-                if next_item["table"] == table and next_item["target_id"] == target_id and next_item["action"] == action:
-                    cluster.append(next_item)
-                    skip_indices.add(j)
-                    j += 1
-                else:
-                    break
-            
-            if len(cluster) > 1:
-                main_item = dict(cluster[-1])
-                main_item["line_number"] = f"{cluster[0]['line_number']}-{cluster[-1]['line_number']}"
-                main_item["is_clustered"] = True
-                main_item["cluster_count"] = len(cluster)
-                main_item["description"] = f"{main_item['description']} ({len(cluster)} aufeinanderfolgende Änderungen)"
-                main_item["group_children"] = cluster[:-1]
-                final_timeline.append(main_item)
-                continue
-
-        final_timeline.append(item)
+    for _, group in itertools.groupby(processed, key=cluster_key):
+        cluster = list(group)
+        if len(cluster) > 1:
+            main_item = dict(cluster[-1])
+            main_item["line_number"] = f"{cluster[0]['line_number']}-{cluster[-1]['line_number']}"
+            main_item["is_clustered"] = True
+            main_item["cluster_count"] = len(cluster)
+            main_item["description"] = f"{main_item['description']} ({len(cluster)} aufeinanderfolgende Änderungen)"
+            main_item["group_children"] = cluster[:-1]
+            final_timeline.append(main_item)
+        else:
+            final_timeline.append(cluster[0])
 
     return {
         "timeline": final_timeline,

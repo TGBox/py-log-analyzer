@@ -1,13 +1,13 @@
 import os
 import sys
 import json
-import socket
+import base64
 import threading
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse
 import webview
 
-from parser import parse_log_file, parse_log_line, parse_log_content
+from parser import parse_log_file, parse_log_content
 from analyzer import analyze_log_entries, parse_external_entity_data
 from sql_engine import SQLEngine
 
@@ -21,11 +21,6 @@ def get_resource_path(relative_path=""):
 
 RESOURCE_DIR = get_resource_path()
 sql_engine = SQLEngine()
-
-def get_free_port():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('127.0.0.1', 0))
-        return s.getsockname()[1]
 
 class LogAnalyzerRequestHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -57,12 +52,16 @@ class LogAnalyzerRequestHandler(SimpleHTTPRequestHandler):
             raw_body = self.rfile.read(content_length)
             filename = self.headers.get('X-File-Name', '')
 
-            if raw_body.startswith(b"{") and b'"entries"' in raw_body:
-                try:
-                    payload_data = json.loads(raw_body.decode('utf-8'))
-                    parsed = payload_data.get("entries", [])
-                except Exception:
-                    parsed = parse_log_content(raw_body, file_name=filename)
+            if raw_body.startswith(b"{") and b'"files"' in raw_body:
+                payload_data = json.loads(raw_body.decode('utf-8'))
+                parsed = []
+                for f in payload_data.get("files", []):
+                    f_name = f.get("name", "")
+                    if f.get("is_zip"):
+                        f_bytes = base64.b64decode(f["data"])
+                        parsed.extend(parse_log_content(f_bytes, file_name=f_name))
+                    else:
+                        parsed.extend(parse_log_content(f.get("text", ""), file_name=f_name))
             else:
                 parsed = parse_log_content(raw_body, file_name=filename)
 
@@ -111,18 +110,12 @@ class LogAnalyzerRequestHandler(SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-def start_server(port):
-    server_address = ('127.0.0.1', port)
-    httpd = HTTPServer(server_address, LogAnalyzerRequestHandler)
-    httpd.serve_forever()
-
 def main():
-    port = get_free_port()
-    
-    server_thread = threading.Thread(target=start_server, args=(port,), daemon=True)
+    httpd = HTTPServer(('127.0.0.1', 0), LogAnalyzerRequestHandler)
+    server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     server_thread.start()
 
-    app_url = f"http://127.0.0.1:{port}"
+    app_url = f"http://127.0.0.1:{httpd.server_port}"
     
     window = webview.create_window(
         title='PyLogAnalyzer — Master-Detail Log Inspector',

@@ -267,88 +267,67 @@ function initThemeToggle() {
     }
 }
 
+function applyLogData(data) {
+    if (data.error) {
+        alert(data.error);
+        return;
+    }
+    logData = data;
+    activeEntry = null;
+    activeEntityFilter = null;
+    activeFileFilter = '';
+    document.getElementById('entity-active-badge').style.display = 'none';
+    updateFileFilterDropdown();
+    updateStats();
+    renderTimeline();
+}
+
 function loadSampleLog() {
     fetch('/api/sample')
         .then(res => res.json())
-        .then(data => {
-            if (data.error) {
-                alert(data.error);
-                return;
-            }
-            logData = data;
-            activeEntry = null;
-            activeEntityFilter = null;
-            activeFileFilter = '';
-            document.getElementById('entity-active-badge').style.display = 'none';
-            updateFileFilterDropdown();
-            updateStats();
-            renderTimeline();
-        })
-        .catch(err => {
-            console.error("Error loading sample log:", err);
-        });
+        .then(applyLogData)
+        .catch(err => console.error("Error loading sample log:", err));
 }
 
-function handleFileSelect(e) {
+async function handleFileSelect(e) {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
-    let allParsedEntries = [];
-    let promises = files.map(file => {
-        return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = function(evt) {
-                const body = evt.target.result;
-                fetch('/api/parse', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/octet-stream',
-                        'X-File-Name': file.name
-                    },
-                    body: body
-                })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.all_entries) {
-                        allParsedEntries = allParsedEntries.concat(data.all_entries);
-                    }
-                    resolve();
-                })
-                .catch(err => {
-                    console.error(`Error parsing file ${file.name}:`, err);
-                    resolve();
-                });
-            };
-            if (file.name.endsWith('.zip')) {
-                reader.readAsArrayBuffer(file);
-            } else {
-                reader.readAsText(file);
-            }
-        });
-    });
-
-    Promise.all(promises).then(() => {
+    if (files.length === 1 && !files[0].name.endsWith('.zip')) {
+        const file = files[0];
+        const text = await file.text();
         fetch('/api/parse', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-File-Name': files.length === 1 ? files[0].name : 'multi_logs.log'
-            },
-            body: JSON.stringify({ entries: allParsedEntries })
+            headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': file.name },
+            body: text
         })
         .then(res => res.json())
-        .then(data => {
-            logData = data;
-            activeEntry = null;
-            activeEntityFilter = null;
-            activeFileFilter = '';
-            document.getElementById('entity-active-badge').style.display = 'none';
-            updateFileFilterDropdown();
-            updateStats();
-            renderTimeline();
-        })
-        .catch(err => console.error("Error parsing combined files:", err));
-    });
+        .then(applyLogData)
+        .catch(err => console.error("Error parsing file:", err));
+        return;
+    }
+
+    const filePayloads = await Promise.all(files.map(async file => {
+        if (file.name.endsWith('.zip')) {
+            const buf = await file.arrayBuffer();
+            let binary = '';
+            const bytes = new Uint8Array(buf);
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return { name: file.name, data: btoa(binary), is_zip: true };
+        }
+        return { name: file.name, text: await file.text() };
+    }));
+
+    fetch('/api/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: filePayloads })
+    })
+    .then(res => res.json())
+    .then(applyLogData)
+    .catch(err => console.error("Error parsing combined files:", err));
 }
 
 function updateFileFilterDropdown() {
@@ -448,23 +427,8 @@ function updateStats() {
 
 function formatDateString(val) {
     if (typeof val !== 'string' || !val) return val;
-
-    const dtMatch = val.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/);
-    if (dtMatch) {
-        return `${dtMatch[3]}.${dtMatch[2]}.${dtMatch[1]} ${dtMatch[4]}`;
-    }
-
-    const dtMinMatch = val.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}:\d{2})(?:Z|[+-]\d{2}:\d{2})?$/);
-    if (dtMinMatch) {
-        return `${dtMinMatch[3]}.${dtMinMatch[2]}.${dtMinMatch[1]} ${dtMinMatch[4]}`;
-    }
-
-    const dateMatch = val.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (dateMatch) {
-        return `${dateMatch[3]}.${dateMatch[2]}.${dateMatch[1]}`;
-    }
-
-    return val.replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, (m, y, mo, d) => `${d}.${mo}.${y}`);
+    return val.replace(/\b(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}:\d{2}(?::\d{2})?))?(?:[+-]\d{2}:\d{2}|Z)?\b/g,
+        (_, y, m, d, t) => t ? `${d}.${m}.${y} ${t}` : `${d}.${m}.${y}`);
 }
 
 function resetInspector() {
@@ -620,39 +584,14 @@ function formatRawLog(entry, pretty = true, indentSize = '2') {
 
     const indent = indentSize === 'tab' ? '\t' : (parseInt(indentSize, 10) || 2);
 
-    // 1. Check if entry has parsed payload object
     if (entry.payload && typeof entry.payload === 'object') {
-        const rawStr = entry.raw;
-        const firstBrace = rawStr.search(/[\{\[]/);
-        if (firstBrace !== -1) {
-            const prefix = rawStr.substring(0, firstBrace).trimEnd();
-            const prettyJson = JSON.stringify(entry.payload, null, indent);
-            return prefix ? `${prefix}\n${prettyJson}` : prettyJson;
-        }
-        return JSON.stringify(entry.payload, null, indent);
+        const braceIdx = entry.raw.search(/[\{\[]/);
+        const prefix = braceIdx !== -1 ? entry.raw.slice(0, braceIdx).trimEnd() : '';
+        const prettyJson = JSON.stringify(entry.payload, null, indent);
+        return prefix ? `${prefix}\n${prettyJson}` : prettyJson;
     }
 
-    // 2. Fallback: try parsing JSON substring inside raw line
-    const firstBrace = entry.raw.search(/[\{\[]/);
-    if (firstBrace !== -1) {
-        const prefix = entry.raw.substring(0, firstBrace).trimEnd();
-        const jsonCandidate = entry.raw.substring(firstBrace);
-        try {
-            const parsed = JSON.parse(jsonCandidate);
-            const prettyJson = JSON.stringify(parsed, null, indent);
-            return prefix ? `${prefix}\n${prettyJson}` : prettyJson;
-        } catch (e) {
-            // Ignore parse error
-        }
-    }
-
-    // 3. Fallback: try parsing full raw line as JSON
-    try {
-        const parsed = JSON.parse(entry.raw);
-        return JSON.stringify(parsed, null, indent);
-    } catch (e) {
-        return entry.raw;
-    }
+    return entry.raw;
 }
 
 function renderJsonTree(entry) {
