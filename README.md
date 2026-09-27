@@ -21,30 +21,36 @@ Er verwandelt unstrukturierte oder komplexe Log-Einträge in eine **menschenlesb
 ## ✨ Hauptfunktionen
 
 ### 🔍 1. Klartext-Übersetzung & Chronologische Timeline
+
 - **Automatische Aufbereitung**: Verwandelt Rohdaten (z. B. `update events id {"title":"Sensomotorisch-perz..."}`) in verständliche Sätze (z. B. *„Termin aktualisiert: Sensomotorisch-perz. Beh. für Ursula Wintzen“*).
 - **Rausch-Reduzierung**: Fasst schnelle, aufeinanderfolgende Tastatureingaben und Tipp-Änderungen automatisch in übersichtliche Einheiten zusammen.
 - **Anomalie-Erkennung**: Highlights bei `NULL`-Parametern in SQL-Befehlen, Gleitkomma-Ungenauigkeiten oder Löschvorgängen.
 
 ### 📂 2. Multi-Logdateien Import & ZIP-Archiv Support
+
 - **Mehrfachauswahl**: Beliebig viele Logdateien (`.log`, `.txt`, `.json`) gleichzeitig auswählen oder direkt ein `.zip`-Archiv hochladen.
 - **Einheitliche Zeitleiste**: Führt alle Zeilen aus allen Dateien automatisch nach Datum/Uhrzeit sortiert zusammen.
 - **Quelldatei-Badges & Filter**: Farbige Dateinamen-Kennzeichnungen pro Zeile sowie ein Dropdown-Filter zur gezielten Auswahl einzelnen Logdateien.
 
 ### 👤 3. Namensauflösung & Stammdaten-Import
+
 - **2-Pass Entitäts-Indexing**: Liest Namen direkt aus den Logdaten oder importiert externe Datenbanktabellen (`patienten`, `users`, `events`, `rezepte`, `rechnung` etc.).
 - **Unterstützte Stammdaten-Formate**: CSV, JSON, SQLite-Datenbanken (`.db`, `.sqlite`) oder ZIP-Archive mit Stammdaten.
 - **Nutzer- & Patienten-Zuordnung**: Löst IDs in Vor- und Nachnamen oder E-Mail-Adressen auf (z. B. `👤 Max Mustermann` statt `MKXR5SKB-BU684`).
 
 ### 🏷️ 4. Typ-Klassifizierung & Entitäts-Tracer
+
 - **IDs auf einen Blick**: Automatische Badges für Entitäts-Typen (`Group-ID`, `Patient-ID`, `Termin-ID`, `Rechnungs-ID`, `Nutzer-ID`).
 - **1-Klick Timeline Filter**: Ein Klick auf eine ID im Entitäts-Tracer filtert die gesamte Master-Zeitleiste auf alle Ereignisse dieser Entität.
 
 ### 💻 5. Interaktive SQL-Konsole
+
 - **In-Memory SQLite Engine**: Wandelt Logeinträge und importierte Stammdaten automatisch in abfragbare relationalen SQL-Tabellen um.
 - **Vollwertiges SQL**: Unterstützt `SELECT`, `JOIN`, `UPDATE`, `INSERT` und `CREATE TABLE`.
 - **Komfort-Features**: Visual Schema Browser (Tabellennamen & Zeilenanzahl), SQL-Vorlagen, `Ctrl+Enter` Tastenkürzel und CSV-Export.
 
 ### 🎨 6. Flexible Benutzeroberfläche
+
 - **Anpassbare Spaltenbreiten**: Spalten der Haupttabelle lassen sich bequem per Drag & Drop in der Breite verstellen.
 - **Resizable Split-Screen**: Flexibles Anpassen des Größenverhältnisses zwischen Timeline und Detail-Inspector.
 - **Dark & Light Mode**: Nahtloser Wechsel zwischen hellem und dunklem Design.
@@ -64,10 +70,12 @@ Er verwandelt unstrukturierte oder komplexe Log-Einträge in eine **menschenlesb
 ## 🚀 Installation & Schnellstart
 
 ### Voraussetzungen
+
 - Python `>= 3.11`
 - Empfohlen: [`uv`](https://github.com/astral-sh/uv) als extrem schneller Package Manager.
 
 ### 1. Repository klonen
+
 ```bash
 git clone https://github.com/IhrUsername/py-log-analyzer.git
 cd py-log-analyzer
@@ -75,12 +83,14 @@ cd py-log-analyzer
 
 ### 2. Abhängigkeiten installieren
 
-#### Mit `uv` (Empfohlen):
+#### Mit `uv` (Empfohlen)
+
 ```bash
 uv sync --extra dev
 ```
 
-#### Alternativ mit Standard `pip`:
+#### Alternativ mit Standard `pip`
+
 ```bash
 python -m venv .venv
 # Windows PowerShell:
@@ -89,6 +99,7 @@ pip install pywebview pyinstaller
 ```
 
 ### 3. Anwendung starten (Entwicklungsmodus)
+
 ```bash
 python app.py
 ```
