@@ -52,16 +52,22 @@ class LogAnalyzerRequestHandler(SimpleHTTPRequestHandler):
             raw_body = self.rfile.read(content_length)
             filename = self.headers.get('X-File-Name', '')
 
-            if raw_body.startswith(b"{") and b'"files"' in raw_body:
-                payload_data = json.loads(raw_body.decode('utf-8'))
-                parsed = []
-                for f in payload_data.get("files", []):
-                    f_name = f.get("name", "")
-                    if f.get("is_zip"):
-                        f_bytes = base64.b64decode(f["data"])
-                        parsed.extend(parse_log_content(f_bytes, file_name=f_name))
-                    else:
-                        parsed.extend(parse_log_content(f.get("text", ""), file_name=f_name))
+            content_type = self.headers.get('Content-Type', '').split(';')[0].strip().lower()
+
+            if content_type == 'application/json':
+                try:
+                    payload_data = json.loads(raw_body.decode('utf-8'))
+                    parsed = []
+                    for f in payload_data.get("files", []):
+                        f_name = f.get("name", "")
+                        if f.get("is_zip"):
+                            f_bytes = base64.b64decode(f["data"])
+                            parsed.extend(parse_log_content(f_bytes, file_name=f_name))
+                        else:
+                            parsed.extend(parse_log_content(f.get("text", ""), file_name=f_name))
+                except Exception as e:
+                    self.send_json_response({"error": f"Upload konnte nicht verarbeitet werden: {e}"}, status=400)
+                    return
             else:
                 parsed = parse_log_content(raw_body, file_name=filename)
 

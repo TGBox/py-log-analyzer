@@ -14,6 +14,16 @@ def check_anomalies(entry):
     table = entry.get("table")
     line_num = entry.get("line_number")
 
+    # 0. Unparseable line
+    if entry.get("error"):
+        anomalies.append({
+            "type": "parse_error",
+            "severity": "warning",
+            "title": "Parse-Fehler",
+            "message": f"Zeile {line_num} entspricht nicht dem erwarteten Log-Format"
+        })
+        return anomalies
+
     # 1. SQL Null Parameter Check
     if action in ("encexec", "encdelete") and isinstance(payload, dict):
         params = payload.get("params", {})

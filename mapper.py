@@ -73,7 +73,10 @@ def get_business_description(entry, entity_names=None):
     table = entry.get("table")
     payload = entry.get("payload") or {}
     entity_names = entity_names or {}
-    
+
+    if entry.get("error") or not action:
+        return "Nicht lesbare Zeile (unbekanntes Log-Format)"
+
     if not isinstance(payload, dict):
         return f"{action.upper()} {table}" if table else action.upper()
 

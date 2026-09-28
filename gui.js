@@ -427,7 +427,7 @@ function updateStats() {
 
 function formatDateString(val) {
     if (typeof val !== 'string' || !val) return val;
-    return val.replace(/\b(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}:\d{2}(?::\d{2})?))?(?:[+-]\d{2}:\d{2}|Z)?\b/g,
+    return val.replace(/\b(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}:\d{2}(?::\d{2})?)(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?\b/g,
         (_, y, m, d, t) => t ? `${d}.${m}.${y} ${t}` : `${d}.${m}.${y}`);
 }
 
