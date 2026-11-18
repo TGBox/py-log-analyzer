@@ -5,7 +5,137 @@ import json
 import csv
 import sqlite3
 import itertools
+import re
 from mapper import get_business_description, compute_field_diff, extract_patient_name
+
+SQL_UPDATE_PATTERN = re.compile(r"^\s*update\s+(\w+)\s+set\s+(.+?)\s+where\s+(.+)$", re.IGNORECASE | re.DOTALL)
+SQL_WHERE_ID_PATTERN = re.compile(r"^\s*id\s*=\s*:(\w+)", re.IGNORECASE)
+
+
+def _split_top_level(text):
+    """Split on commas that are not inside parentheses or quotes."""
+    parts, depth, quote, current = [], 0, None, []
+    for ch in text:
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+            continue
+        current.append(ch)
+    parts.append("".join(current))
+    return parts
+
+
+def _sql_value(expr, params):
+    expr = expr.strip()
+    if expr.startswith(":"):
+        return params.get(expr[1:])
+    low = expr.lower()
+    if low == "null":
+        return None
+    if low in ("true", "false"):
+        return low == "true"
+    if len(expr) >= 2 and expr[0] == "'" and expr[-1] == "'":
+        return expr[1:-1]
+    try:
+        return json.loads(expr)
+    except Exception:
+        return expr  # SQL expression such as CURRENT_DATE
+
+
+def parse_sql_write(entry):
+    """Extract the written columns of an 'update <table> set ...' SQL command.
+
+    Returns {"table", "id", "fields"} or None. "id" is only set when the
+    statement addresses a single row via 'where id=:param'.
+    """
+    payload = entry.get("payload")
+    if entry.get("action") != "encexec" or not isinstance(payload, dict):
+        return None
+    sql = payload.get("sql")
+    params = payload.get("params")
+    if not isinstance(sql, str):
+        return None
+    if not isinstance(params, dict):
+        params = {}
+
+    m = SQL_UPDATE_PATTERN.match(sql.strip())
+    if not m:
+        return None
+    table, assignments, where = m.groups()
+
+    fields = {}
+    for part in _split_top_level(assignments):
+        if "=" not in part:
+            continue
+        col, expr = part.split("=", 1)
+        col = col.strip().lower()
+        if re.fullmatch(r"\w+", col):
+            fields[col] = _sql_value(expr, params)
+    if not fields:
+        return None
+
+    record_id = None
+    m_id = SQL_WHERE_ID_PATTERN.match(where)
+    if m_id:
+        record_id = params.get(m_id.group(1))
+
+    return {"table": table.lower(), "id": record_id, "fields": fields}
+
+
+def get_written_fields(entry):
+    """Return (table, record_id, fields) for entries that write data, else None."""
+    sql_write = entry.get("sql_write")
+    if sql_write:
+        return sql_write["table"], sql_write["id"], sql_write["fields"]
+    payload = entry.get("payload")
+    if entry.get("action") in ("insert", "update") and entry.get("table") and isinstance(payload, dict):
+        return entry["table"], entry.get("target_id") or payload.get("id"), payload
+    return None
+
+
+def _is_empty(val):
+    return val is None or val == "" or val == [] or val == {}
+
+
+def detect_field_changes(entry, record_states):
+    """Compare the written fields with the last known state of the same record.
+
+    record_states maps (table, id) -> {field: last value} and is updated in place.
+    Returns {field: {"kind": ...}} with kind
+      "initial" - non-empty value on insert
+      "set"     - non-empty value, field not seen before (previous value unknown)
+      "changed" - value differs from the last known value (carries "old")
+    or None if the entry writes no data.
+    """
+    written = get_written_fields(entry)
+    if not written:
+        return None
+    table, record_id, fields = written
+    changes = {}
+    if record_id is None:
+        return changes
+
+    known = record_states.setdefault((table, str(record_id)), {})
+    is_insert = entry.get("action") == "insert"
+    for field, new_val in fields.items():
+        if field == "id":
+            continue
+        if field in known:
+            if known[field] != new_val:
+                changes[field] = {"kind": "changed", "old": known[field]}
+        elif not _is_empty(new_val):
+            changes[field] = {"kind": "initial" if is_insert else "set"}
+        known[field] = new_val
+    return changes
 
 def check_anomalies(entry):
     anomalies = []
@@ -278,6 +408,8 @@ def analyze_log_entries(parsed_entries, external_entity_map=None):
     processed = []
     entity_index = {} # id -> list of entry indices
     entity_labels = {} # id -> entity_type_label
+    record_states = {} # (table, id) -> {field: last known value}
+    field_names = set()
 
     # Pass 2: Enrich individual entries with resolved descriptions and entity info
     for entry in parsed_entries:
@@ -308,7 +440,15 @@ def analyze_log_entries(parsed_entries, external_entity_map=None):
         enriched["entities"] = entities
         enriched["entities_info"] = entities_info
         enriched["group_children"] = []
-        
+
+        sql_write = parse_sql_write(entry)
+        if sql_write:
+            enriched["sql_write"] = sql_write
+        changes = detect_field_changes(enriched, record_states)
+        if changes is not None:
+            enriched["changes"] = changes
+            field_names.update(k.lower() for k in get_written_fields(enriched)[2])
+
         processed.append(enriched)
 
     # Build entity index
@@ -360,5 +500,6 @@ def analyze_log_entries(parsed_entries, external_entity_map=None):
         "entity_names": entity_names,
         "entity_labels": entity_labels,
         "loaded_files": loaded_files,
+        "field_names": sorted(field_names),
         "total_count": len(parsed_entries)
     }

@@ -3,6 +3,16 @@ import time
 import json
 import re
 
+from analyzer import get_written_fields
+
+# Herkunft jeder Zeile in den dynamischen Tabellen (welcher Logeintrag hat sie geschrieben)
+META_COLUMNS = ("_file_name", "_line_number", "_timestamp", "_user", "_action")
+
+
+def _sql_cell(val):
+    return json.dumps(val, ensure_ascii=False) if isinstance(val, (dict, list)) else val
+
+
 class SQLEngine:
     def __init__(self):
         self._init_db()
@@ -55,7 +65,7 @@ class SQLEngine:
         # 3. Dynamically build tables for entities (e.g. patienten, events, rezepte, rechnung, rechpos)
         tables_data = {}
 
-        def collect_payload(tbl_name, payload):
+        def collect_payload(tbl_name, payload, entry=None):
             if not isinstance(payload, dict) or not tbl_name:
                 return
             
@@ -70,23 +80,30 @@ class SQLEngine:
                     row_dict[col_name] = json.dumps(v, ensure_ascii=False)
                 else:
                     row_dict[col_name] = v
-            
+
+            if entry:
+                row_dict["_file_name"] = entry.get("file_name")
+                row_dict["_line_number"] = entry.get("line_number")
+                row_dict["_timestamp"] = entry.get("timestamp")
+                row_dict["_user"] = entry.get("user")
+                row_dict["_action"] = entry.get("action")
+
             tables_data[tbl_name].append(row_dict)
 
         for entry in parsed_entries:
             table = entry.get("table")
             payload = entry.get("payload")
             if table and isinstance(payload, dict):
-                collect_payload(table, payload)
+                collect_payload(table, payload, entry)
                 # Check nested objects like rechnung, patient
                 if "rechnung" in payload and isinstance(payload["rechnung"], dict):
-                    collect_payload("rechnung", payload["rechnung"])
+                    collect_payload("rechnung", payload["rechnung"], entry)
                 if "patient" in payload:
                     pat = payload["patient"]
                     if isinstance(pat, dict):
-                        collect_payload("patienten", pat)
+                        collect_payload("patienten", pat, entry)
                     elif isinstance(pat, str) and payload.get("patient_id"):
-                        collect_payload("patienten", {"id": payload.get("patient_id"), "name": pat.split('\n')[0]})
+                        collect_payload("patienten", {"id": payload.get("patient_id"), "name": pat.split('\n')[0]}, entry)
 
         # If entity_names mapping exists, ensure patienten table is populated with all resolved names
         if entity_names and isinstance(entity_names, dict):
@@ -103,7 +120,7 @@ class SQLEngine:
             all_cols = set()
             for r in rows:
                 all_cols.update(r.keys())
-            cols = sorted(list(all_cols))
+            cols = [c for c in META_COLUMNS if c in all_cols] + sorted(all_cols - set(META_COLUMNS))
 
             col_defs = ", ".join([f'"{c}" TEXT' for c in cols])
             cursor.execute(f'CREATE TABLE IF NOT EXISTS "{tbl_name}" ({col_defs});')
@@ -117,6 +134,42 @@ class SQLEngine:
                 row_values.append(tuple(r.get(c) for c in cols))
 
             cursor.executemany(insert_sql, row_values)
+
+        # 4. Feldänderungen: eine Zeile pro tatsächlich geändertem Feld
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS field_changes (
+                file_name TEXT,
+                line_number INTEGER,
+                timestamp TEXT,
+                user TEXT,
+                table_name TEXT,
+                target_id TEXT,
+                field TEXT,
+                kind TEXT,
+                old_value TEXT,
+                new_value TEXT
+            );
+        """)
+        change_rows = []
+        for entry in parsed_entries:
+            changes = entry.get("changes")
+            if not changes:
+                continue
+            table, record_id, fields = get_written_fields(entry)
+            for field, change in changes.items():
+                change_rows.append((
+                    entry.get("file_name"),
+                    entry.get("line_number"),
+                    entry.get("timestamp"),
+                    entry.get("user"),
+                    table,
+                    record_id,
+                    field,
+                    change.get("kind"),
+                    _sql_cell(change.get("old")),
+                    _sql_cell(fields.get(field)),
+                ))
+        cursor.executemany("INSERT INTO field_changes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);", change_rows)
 
         self.conn.commit()
 

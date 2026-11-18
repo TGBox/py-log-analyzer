@@ -4,6 +4,10 @@ let activeFilter = 'all';
 let activeEntityFilter = null;
 let activeFileFilter = '';
 let collapseNoise = true;
+let fieldNames = new Set();   // alle Feldnamen, die in den geladenen Logs geschrieben werden
+let rules = [];               // gespeicherte Event-Regeln [{name, query}]
+let compiledRules = [];       // Regeln inkl. geparster Suche und Trefferzahl
+let activeRuleName = null;
 let prettyPrintRaw = localStorage.getItem('pretty_print_raw') !== 'false';
 let rawIndentSize = localStorage.getItem('raw_indent_size') || '2';
 
@@ -11,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initEvents();
     initThemeToggle();
     initSQLConsole();
+    initRules();
     loadSampleLog();
 });
 
@@ -273,6 +278,8 @@ function applyLogData(data) {
         return;
     }
     logData = data;
+    fieldNames = new Set(data.field_names || []);
+    compileRules();
     activeEntry = null;
     activeEntityFilter = null;
     activeFileFilter = '';
@@ -452,10 +459,11 @@ function renderTimeline() {
         return;
     }
 
-    const searchQuery = document.getElementById('search-input').value.trim().toLowerCase();
+    const searchQuery = parseSearchQuery(document.getElementById('search-input').value);
+    const activeRule = compiledRules.find(r => r.name === activeRuleName);
     const listToRender = collapseNoise ? logData.timeline : logData.all_entries;
 
-    let filtered = listToRender.filter(entry => {
+    const passesFilters = (entry) => {
         if (activeFilter === 'insert' && entry.action !== 'insert') return false;
         if (activeFilter === 'update' && entry.action !== 'update') return false;
         if (activeFilter === 'delete' && !(entry.action === 'encdelete' || (entry.anomalies || []).some(a => a.type === 'deletion'))) return false;
@@ -470,17 +478,22 @@ function renderTimeline() {
             if (!hasEntity) return false;
         }
 
-        if (searchQuery) {
-            const rawText = (entry.raw || '').toLowerCase();
-            const descText = (entry.description || '').toLowerCase();
-            const userText = (entry.user || '').toLowerCase();
-            const userNameText = (entry.user_name || '').toLowerCase();
-            const tableText = (entry.table || '').toLowerCase();
-            const fileText = (entry.file_name || '').toLowerCase();
-            return rawText.includes(searchQuery) || descText.includes(searchQuery) || userText.includes(searchQuery) || userNameText.includes(searchQuery) || tableText.includes(searchQuery) || fileText.includes(searchQuery);
-        }
+        if (activeRule && !matchesQuery(entry, activeRule.parsed)) return false;
 
-        return true;
+        return matchesQuery(entry, searchQuery);
+    };
+
+    // Zusammengefasste Einträge: passt die Gruppe selbst nicht, werden die
+    // passenden Einzel-Einträge der Gruppe angezeigt (sonst gingen Treffer verloren).
+    const filtered = [];
+    listToRender.forEach(entry => {
+        if (passesFilters(entry)) {
+            filtered.push(entry);
+        } else if (entry.is_clustered) {
+            (entry.group_children || []).forEach(child => {
+                if (passesFilters(child)) filtered.push(child);
+            });
+        }
     });
 
     if (filtered.length === 0) {
@@ -505,6 +518,11 @@ function renderTimeline() {
             anomalyBadgeHtml = `<span class="badge-anomaly" title="${entry.anomalies[0].message}">⚠️ ${entry.anomalies[0].title}</span>`;
         }
 
+        const ruleBadgesHtml = compiledRules
+            .filter(rule => matchesQuery(entry, rule.parsed))
+            .map(rule => `<span class="badge-rule" title="Regel: ${escapeHtml(rule.query)}">${escapeHtml(rule.name)}</span>`)
+            .join('');
+
         const fileNameDisplay = entry.file_name || 'sample.log';
         const userName = entry.user_name || ((logData && logData.entity_names) ? logData.entity_names[entry.user] : null);
         const userDisplay = userName ? `<span class="user-name-tag" title="User ID: ${escapeHtml(entry.user || '')}">👤 ${escapeHtml(userName)}</span>` : escapeHtml(entry.user || '');
@@ -517,7 +535,7 @@ function renderTimeline() {
             <td><span class="badge ${badgeClass}">${entry.action}</span></td>
             <td><strong>${entry.table || ''}</strong></td>
             <td>${escapeHtml(entry.description || '')}</td>
-            <td>${anomalyBadgeHtml}</td>
+            <td>${ruleBadgesHtml}${anomalyBadgeHtml}</td>
         `;
 
         tr.addEventListener('click', () => {
@@ -664,6 +682,12 @@ function renderDiff(entry) {
     const container = document.getElementById('diff-container');
     container.innerHTML = '';
 
+    // Schreibende Einträge: Änderungen gegenüber dem letzten bekannten Stand des Datensatzes
+    if (entry.changes) {
+        renderFieldChanges(entry, container);
+        return;
+    }
+
     const diff = entry.diff;
     if (!diff || Object.keys(diff).length === 0) {
         container.innerHTML = '<div class="empty-state">Keine Änderungen im Vergleich zur vorherigen Zeile festgestellt.</div>';
@@ -696,6 +720,241 @@ function renderDiff(entry) {
     });
 
     container.appendChild(table);
+}
+
+const CHANGE_KIND_LABELS = {
+    initial: 'neu angelegt',
+    set: 'gesetzt (Vorwert unbekannt)',
+    changed: 'geändert'
+};
+
+function renderFieldChanges(entry, container) {
+    const changes = entry.changes || {};
+    const fields = getEntryFields(entry) || {};
+    const keys = Object.keys(changes);
+    if (keys.length === 0) {
+        container.innerHTML = '<div class="empty-state">Keine Feldänderungen gegenüber dem letzten bekannten Stand dieses Datensatzes.</div>';
+        return;
+    }
+
+    const table = document.createElement('table');
+    table.className = 'diff-table';
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>Feldname</th>
+                <th>Vorheriger Wert</th>
+                <th>Neuer Wert</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    `;
+
+    const tbody = table.querySelector('tbody');
+    // Echte Änderungen zuerst, dann erstmals gesetzte Felder
+    keys.sort((a, b) => (changes[a].kind === 'changed' ? 0 : 1) - (changes[b].kind === 'changed' ? 0 : 1));
+    keys.forEach(key => {
+        const change = changes[key];
+        const oldHtml = change.kind === 'changed' ? formatDiffValue(change.old) : '<span class="tree-null">—</span>';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><strong style="color: #38bdf8;">${escapeHtml(key)}</strong><div class="change-kind change-kind-${change.kind}">${CHANGE_KIND_LABELS[change.kind] || change.kind}</div></td>
+            <td class="diff-old">${oldHtml}</td>
+            <td class="diff-new">${formatDiffValue(fields[key])}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    container.appendChild(table);
+}
+
+// ---------------------------------------------------------------------------
+// Feld-Suche: feld:*  feld:null  feld:wert  geändert:feld  tabelle:x  aktion:x
+// ---------------------------------------------------------------------------
+const QUERY_KEYWORDS = {
+    'tabelle': 'table', 'table': 'table',
+    'aktion': 'action', 'action': 'action',
+    'geändert': 'changed', 'geaendert': 'changed', 'changed': 'changed'
+};
+
+function parseSearchQuery(query) {
+    const conds = [];
+    const textTokens = [];
+    const tokens = (query || '').trim().match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+
+    tokens.forEach(token => {
+        const m = token.match(/^([a-zäöü_][\wäöü.]*):(.*)$/i);
+        if (m) {
+            const key = m[1].toLowerCase();
+            const value = m[2].replace(/"/g, '').toLowerCase();
+            if (QUERY_KEYWORDS[key]) {
+                conds.push({ type: QUERY_KEYWORDS[key], value });
+                return;
+            }
+            const path = key.split('.');
+            if (fieldNames.has(path[0])) {
+                conds.push({ type: 'field', path, value });
+                return;
+            }
+        }
+        textTokens.push(token);
+    });
+
+    return { conds, text: textTokens.join(' ').toLowerCase() };
+}
+
+// Geschriebene Felder eines Eintrags: Payload bei insert/update, SET-Spalten bei SQL-Updates
+function getEntryFields(entry) {
+    if (entry.sql_write) return entry.sql_write.fields;
+    const payload = entry.payload;
+    return (payload && typeof payload === 'object' && !Array.isArray(payload)) ? payload : null;
+}
+
+function getFieldValue(obj, path) {
+    let current = obj;
+    for (const key of path) {
+        if (!current || typeof current !== 'object') return undefined;
+        if (key in current) {
+            current = current[key];
+        } else {
+            const realKey = Object.keys(current).find(k => k.toLowerCase() === key);
+            if (realKey === undefined) return undefined;
+            current = current[realKey];
+        }
+    }
+    return current;
+}
+
+function isEmptyValue(val) {
+    return val === null || val === undefined || val === '' ||
+        (typeof val === 'object' && Object.keys(val).length === 0);
+}
+
+function matchesQuery(entry, parsed) {
+    for (const cond of parsed.conds) {
+        if (cond.type === 'table') {
+            const table = ((entry.sql_write && entry.sql_write.table) || entry.table || '').toLowerCase();
+            if (cond.value && table !== cond.value) return false;
+        } else if (cond.type === 'action') {
+            if (cond.value && (entry.action || '').toLowerCase() !== cond.value) return false;
+        } else if (cond.type === 'changed') {
+            const changes = entry.changes;
+            if (!changes || Object.keys(changes).length === 0) return false;
+            if (cond.value && !(cond.value in changes)) return false;
+        } else if (cond.type === 'field') {
+            const val = getFieldValue(getEntryFields(entry), cond.path);
+            if (val === undefined) return false;
+            if (cond.value === '*') {
+                if (isEmptyValue(val)) return false;
+            } else if (cond.value === 'null') {
+                if (!isEmptyValue(val)) return false;
+            } else if (cond.value) {
+                const text = (typeof val === 'object' && val !== null) ? JSON.stringify(val) : String(val);
+                if (!text.toLowerCase().includes(cond.value)) return false;
+            }
+        }
+    }
+
+    if (parsed.text) {
+        const haystacks = [entry.raw, entry.description, entry.user, entry.user_name, entry.table, entry.file_name];
+        return haystacks.some(h => (h || '').toLowerCase().includes(parsed.text));
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Gespeicherte Event-Regeln (benannte Suchen als Chips + Badges in der Timeline)
+// ---------------------------------------------------------------------------
+function initRules() {
+    const btnAdd = document.getElementById('btn-add-rule');
+    const nameInput = document.getElementById('rule-name-input');
+    const hint = document.getElementById('rule-hint');
+    if (!btnAdd || !nameInput) return;
+
+    btnAdd.addEventListener('click', () => {
+        const query = document.getElementById('search-input').value.trim();
+        if (!query) {
+            hint.textContent = 'Erst eine Suche eingeben, z. B. geändert:tp_therapiebericht';
+            return;
+        }
+        hint.textContent = '';
+        nameInput.style.display = 'inline-block';
+        nameInput.value = '';
+        nameInput.focus();
+    });
+
+    nameInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            nameInput.style.display = 'none';
+        } else if (e.key === 'Enter') {
+            const name = nameInput.value.trim();
+            const query = document.getElementById('search-input').value.trim();
+            if (!name || !query) return;
+            nameInput.style.display = 'none';
+            saveRules(rules.filter(r => r.name !== name).concat([{ name, query }]));
+        }
+    });
+
+    fetch('/api/rules')
+        .then(res => res.json())
+        .then(data => {
+            rules = data.rules || [];
+            compileRules();
+            renderTimeline();
+        })
+        .catch(err => console.error('Regeln konnten nicht geladen werden:', err));
+}
+
+function saveRules(newRules) {
+    rules = newRules;
+    compileRules();
+    renderTimeline();
+    fetch('/api/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rules })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.error) document.getElementById('rule-hint').textContent = data.error;
+    })
+    .catch(err => console.error('Regeln konnten nicht gespeichert werden:', err));
+}
+
+function compileRules() {
+    const entries = (logData && logData.all_entries) || [];
+    compiledRules = rules.map(rule => {
+        const parsed = parseSearchQuery(rule.query);
+        const count = entries.reduce((n, e) => n + (matchesQuery(e, parsed) ? 1 : 0), 0);
+        return { name: rule.name, query: rule.query, parsed, count };
+    });
+    if (activeRuleName && !compiledRules.some(r => r.name === activeRuleName)) {
+        activeRuleName = null;
+    }
+    renderRuleChips();
+}
+
+function renderRuleChips() {
+    const box = document.getElementById('rule-chips');
+    if (!box) return;
+    box.innerHTML = '';
+
+    compiledRules.forEach(rule => {
+        const chip = document.createElement('button');
+        chip.className = 'chip chip-rule' + (rule.name === activeRuleName ? ' active' : '');
+        chip.title = `Filter: ${rule.query}`;
+        chip.innerHTML = `${escapeHtml(rule.name)} <span class="rule-count">${rule.count}</span><span class="rule-del" title="Regel löschen">✕</span>`;
+        chip.addEventListener('click', (e) => {
+            if (e.target.classList.contains('rule-del')) {
+                saveRules(rules.filter(r => r.name !== rule.name));
+                return;
+            }
+            activeRuleName = activeRuleName === rule.name ? null : rule.name;
+            renderRuleChips();
+            renderTimeline();
+        });
+        box.appendChild(chip);
+    });
 }
 
 function formatDiffValue(val) {

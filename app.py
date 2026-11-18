@@ -22,6 +22,43 @@ def get_resource_path(relative_path=""):
 RESOURCE_DIR = get_resource_path()
 sql_engine = SQLEngine()
 
+# Gespeicherte Event-Regeln (benannte Suchen). Liegen im Benutzerprofil, damit sie
+# Neustarts und neue Builds der .exe überleben.
+RULES_FILE = os.path.join(
+    os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), ".config"),
+    "PyLogAnalyzer", "rules.json"
+)
+DEFAULT_RULES = [
+    {"name": "Therapiebericht geschrieben", "query": "tabelle:rezepte geändert:tp_therapiebericht"},
+]
+
+def load_rules():
+    try:
+        with open(RULES_FILE, "r", encoding="utf-8") as f:
+            return clean_rules(json.load(f))
+    except FileNotFoundError:
+        return list(DEFAULT_RULES)
+    except Exception as e:
+        print(f"Regeln konnten nicht gelesen werden: {e}")
+        return []
+
+def clean_rules(rules):
+    cleaned = []
+    for rule in rules if isinstance(rules, list) else []:
+        if isinstance(rule, dict):
+            name = str(rule.get("name", "")).strip()
+            query = str(rule.get("query", "")).strip()
+            if name and query:
+                cleaned.append({"name": name[:60], "query": query[:500]})
+    return cleaned
+
+def save_rules(rules):
+    rules = clean_rules(rules)
+    os.makedirs(os.path.dirname(RULES_FILE), exist_ok=True)
+    with open(RULES_FILE, "w", encoding="utf-8") as f:
+        json.dump(rules, f, ensure_ascii=False, indent=2)
+    return rules
+
 class LogAnalyzerRequestHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=RESOURCE_DIR, **kwargs)
@@ -42,7 +79,11 @@ class LogAnalyzerRequestHandler(SimpleHTTPRequestHandler):
         elif parsed_url.path == "/api/schema":
             self.send_json_response(sql_engine.get_schema())
             return
-        
+
+        elif parsed_url.path == "/api/rules":
+            self.send_json_response({"rules": load_rules()})
+            return
+
         return super().do_GET()
 
     def do_POST(self):
@@ -100,6 +141,17 @@ class LogAnalyzerRequestHandler(SimpleHTTPRequestHandler):
 
             result = sql_engine.execute_query(query)
             self.send_json_response(result)
+            return
+
+        elif parsed_url.path == "/api/rules":
+            content_length = int(self.headers.get('Content-Length', 0))
+            try:
+                payload = json.loads(self.rfile.read(content_length).decode('utf-8'))
+                rules = save_rules(payload.get("rules", []))
+            except Exception as e:
+                self.send_json_response({"error": f"Regeln konnten nicht gespeichert werden: {e}"}, status=400)
+                return
+            self.send_json_response({"rules": rules})
             return
 
         self.send_error(404, "Not Found")

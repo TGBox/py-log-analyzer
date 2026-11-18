@@ -38,6 +38,30 @@ class TestSQLEngine(unittest.TestCase):
         self.assertIsNone(res.get("error"))
         self.assertGreater(len(res["rows"]), 0)
 
+    def test_dynamic_tables_carry_log_origin(self):
+        res = self.engine.execute_query(
+            "SELECT r._file_name, r._line_number, l.raw FROM rezepte r "
+            "JOIN logs l ON l.file_name = r._file_name AND l.line_number = r._line_number "
+            "WHERE r._action = 'insert';"
+        )
+        self.assertIsNone(res.get("error"))
+        self.assertGreater(len(res["rows"]), 0)
+        self.assertIn("insert rezepte", res["rows"][0][2])
+
+    def test_field_changes_table(self):
+        res = self.engine.execute_query(
+            "SELECT kind, count(*) FROM field_changes GROUP BY kind ORDER BY kind;"
+        )
+        self.assertIsNone(res.get("error"))
+        self.assertEqual([r[0] for r in res["rows"]], ["changed", "initial", "set"])
+
+        res = self.engine.execute_query(
+            "SELECT count(*) FROM field_changes fc "
+            "JOIN logs l ON l.file_name = fc.file_name AND l.line_number = fc.line_number;"
+        )
+        total = self.engine.execute_query("SELECT count(*) FROM field_changes;")
+        self.assertEqual(res["rows"][0][0], total["rows"][0][0])
+
     def test_update_insert_query(self):
         res_create = self.engine.execute_query("CREATE TABLE test_tab (id INT, val TEXT);")
         self.assertIsNone(res_create.get("error"))

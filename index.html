@@ -86,7 +86,8 @@
                     <circle cx="11" cy="11" r="8"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                 </svg>
-                <input type="text" id="search-input" placeholder="Suche nach Begriffen, Name, Aktion oder ID (z.B. 6KCRE-MRANHX)...">
+                <input type="text" id="search-input" placeholder="Suche nach Begriff, Name, ID – oder Feld-Filter: feld:*  geändert:feld  tabelle:rezepte"
+                       title="Feld-Filter (mit Leerzeichen kombinierbar):&#10;feld:*  –  Feld ist gesetzt (nicht leer)&#10;feld:null  –  Feld ist leer&#10;feld:text  –  Feldwert enthält Text&#10;rechnung.feld:*  –  verschachteltes Feld&#10;geändert:feld  –  Feldwert wurde tatsächlich geändert&#10;tabelle:rezepte  /  aktion:update  –  Tabelle bzw. Aktion">
                 <button id="btn-clear-search" class="btn-icon" title="Suche zurücksetzen" style="display:none;">✕</button>
             </div>
 
@@ -113,6 +114,15 @@
                 <div class="stat-item"><span id="stat-entities">0</span> <label>Entitäten</label></div>
                 <div class="stat-item stat-warning"><span id="stat-anomalies">0</span> <label>Anomalien</label></div>
             </div>
+        </div>
+
+        <!-- Gespeicherte Event-Regeln -->
+        <div class="rules-bar">
+            <span class="rules-label">Regeln:</span>
+            <div id="rule-chips" class="filter-chips"></div>
+            <button id="btn-add-rule" class="chip chip-add-rule" title="Aktuelle Suche unter einem Namen als Regel speichern">＋ Suche als Regel speichern</button>
+            <input type="text" id="rule-name-input" class="rule-name-input" placeholder="Regelname, dann Enter" maxlength="60" style="display:none;">
+            <span id="rule-hint" class="rule-hint"></span>
         </div>
 
         <!-- Main Split Screen Workspace -->
@@ -272,6 +282,8 @@
                                     <option value="SELECT logs.timestamp, patienten.p_name, logs.description FROM logs JOIN patienten ON logs.target_id = patienten.id LIMIT 25;">JOIN: Log-Aktionen mit Patienten-Namen</option>
                                     <option value="SELECT action, count(*) AS anzahl FROM logs GROUP BY action;">Statistik nach Action-Typ</option>
                                     <option value="SELECT * FROM logs WHERE action = 'encdelete' OR description LIKE '%abgesagt%';">Alle Löschungen & Absagen</option>
+                                    <option value="SELECT timestamp, user, table_name, target_id, field, kind, old_value, new_value, file_name, line_number FROM field_changes WHERE kind = 'changed' ORDER BY timestamp LIMIT 200;">Feldänderungen mit altem und neuem Wert (field_changes)</option>
+                                    <option value="SELECT field, count(*) AS anzahl FROM field_changes WHERE kind = 'changed' GROUP BY field ORDER BY anzahl DESC;">Statistik: am häufigsten geänderte Felder</option>
                                 </select>
 
                                 <button id="btn-show-schema" class="btn btn-secondary" title="Verfügbare Tabellen & Spalten anzeigen">

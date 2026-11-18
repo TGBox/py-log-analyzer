@@ -49,7 +49,24 @@ Er verwandelt unstrukturierte oder komplexe Log-Einträge in eine **menschenlesb
 - **Vollwertiges SQL**: Unterstützt `SELECT`, `JOIN`, `UPDATE`, `INSERT` und `CREATE TABLE`.
 - **Komfort-Features**: Visual Schema Browser (Tabellennamen & Zeilenanzahl), SQL-Vorlagen, `Ctrl+Enter` Tastenkürzel und CSV-Export.
 
-### 🎨 6. Flexible Benutzeroberfläche
+### 🎯 6. Feld-Filter, Änderungs-Erkennung & Event-Regeln
+
+- **Feld-Filter in der Suche** (mit Leerzeichen kombinierbar, auch mit normalem Suchtext):
+
+  | Eingabe | Bedeutung |
+  | --- | --- |
+  | `tp_therapiebericht:*` | Feld ist gesetzt (nicht leer) |
+  | `tp_therapiebericht:null` | Feld ist enthalten, aber leer |
+  | `tp_therapiebericht:Anamnese` | Feldwert enthält den Text |
+  | `rechnung.status:*` | Verschachteltes Feld |
+  | `geändert:tp_therapiebericht` | Feldwert wurde tatsächlich geändert (auch `changed:`) |
+  | `tabelle:rezepte`, `aktion:update` | Einschränkung auf Tabelle bzw. Aktion |
+
+- **Änderungs-Erkennung**: Pro Datensatz (Tabelle + ID) wird der letzte bekannte Wert jedes Felds mitgeführt. Als Änderung zählt nur, wenn sich ein Wert wirklich ändert oder ein Feld erstmals mit Inhalt geschrieben wird. Einfache SQL-Updates (`update <tabelle> set ... where id=:id`) werden dabei wie Feld-Updates behandelt. Der Tab **Field Diff** zeigt alten und neuen Wert.
+- **Event-Regeln**: Jede Suche lässt sich unter einem Namen speichern (*„＋ Suche als Regel speichern“*). Regeln erscheinen als Filter-Chips mit Trefferzahl und als Badge in der Timeline. Gespeichert wird in `%APPDATA%\PyLogAnalyzer\rules.json`.
+- **SQL**: Die Tabelle `field_changes` enthält eine Zeile pro geändertem Feld (alter/neuer Wert). Alle aus den Logs erzeugten Tabellen tragen die Herkunftsspalten `_file_name`, `_line_number`, `_timestamp`, `_user`, `_action`.
+
+### 🎨 7. Flexible Benutzeroberfläche
 
 - **Anpassbare Spaltenbreiten**: Spalten der Haupttabelle lassen sich bequem per Drag & Drop in der Breite verstellen.
 - **Resizable Split-Screen**: Flexibles Anpassen des Größenverhältnisses zwischen Timeline und Detail-Inspector.
